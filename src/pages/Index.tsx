@@ -1,9 +1,12 @@
 import { useState, useCallback } from "react";
+import { useNavigate } from "react-router-dom";
 import { Sparkles } from "lucide-react";
 import { ImageUploader } from "@/components/ImageUploader";
 import { ImagePreview } from "@/components/ImagePreview";
+import { UserMenu } from "@/components/UserMenu";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 
 const Index = () => {
@@ -11,6 +14,8 @@ const Index = () => {
   const [processedImage, setProcessedImage] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const { toast } = useToast();
+  const { user, profile, refreshProfile } = useAuth();
+  const navigate = useNavigate();
 
   const handleImageSelect = useCallback((imageBase64: string) => {
     setOriginalImage(imageBase64);
@@ -19,6 +24,25 @@ const Index = () => {
 
   const handleGenerate = useCallback(async () => {
     if (!originalImage) return;
+
+    if (!user) {
+      toast({
+        title: "请先登录",
+        description: "登录后即可使用白底图生成功能",
+        variant: "destructive",
+      });
+      navigate("/auth");
+      return;
+    }
+
+    if (!profile || profile.credits < 1) {
+      toast({
+        title: "积分不足",
+        description: "您的积分已用完，请充值后继续使用",
+        variant: "destructive",
+      });
+      return;
+    }
 
     setIsProcessing(true);
     setProcessedImage(null);
@@ -38,9 +62,11 @@ const Index = () => {
 
       if (data.image) {
         setProcessedImage(data.image);
+        // Refresh profile to update credits display
+        await refreshProfile();
         toast({
           title: "生成成功",
-          description: "白底图已生成完成",
+          description: `白底图已生成，剩余积分: ${(profile?.credits ?? 1) - 1}`,
         });
       } else {
         throw new Error("未能生成图片");
@@ -55,7 +81,7 @@ const Index = () => {
     } finally {
       setIsProcessing(false);
     }
-  }, [originalImage, toast]);
+  }, [originalImage, toast, user, profile, refreshProfile, navigate]);
 
   const handleClear = useCallback(() => {
     setOriginalImage(null);
@@ -89,9 +115,7 @@ const Index = () => {
             </div>
             <span className="font-display font-semibold text-lg">白底图生成器</span>
           </div>
-          <p className="text-sm text-muted-foreground hidden sm:block">
-            AI 智能抠图 · 一键生成
-          </p>
+          <UserMenu />
         </div>
       </header>
 
@@ -105,6 +129,11 @@ const Index = () => {
           <p className="text-muted-foreground text-base md:text-lg max-w-xl mx-auto">
             上传任意图片，AI 智能识别主体，自动生成纯白背景图片
           </p>
+          {user && profile && (
+            <p className="mt-3 text-sm text-muted-foreground">
+              当前积分: <span className="font-semibold text-amber-500">{profile.credits}</span>（每次生成消耗1积分）
+            </p>
+          )}
         </div>
 
         {/* Upload / Preview Area */}
@@ -130,16 +159,18 @@ const Index = () => {
                   <div className="flex justify-center pt-2">
                     <Button
                       onClick={handleGenerate}
-                      disabled={isProcessing}
+                      disabled={isProcessing || (!user)}
                       size="lg"
                       className="px-8 h-12 text-base font-medium gradient-primary hover:opacity-90 transition-opacity"
                     >
                       {isProcessing ? (
                         <>处理中...</>
+                      ) : !user ? (
+                        <>请先登录</>
                       ) : (
                         <>
                           <Sparkles className="w-5 h-5 mr-2" />
-                          生成白底图
+                          生成白底图 (消耗1积分)
                         </>
                       )}
                     </Button>

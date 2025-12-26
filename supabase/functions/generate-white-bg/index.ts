@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.89.0";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -11,6 +12,57 @@ serve(async (req) => {
   }
 
   try {
+    // Get the authorization header
+    const authHeader = req.headers.get('Authorization');
+    if (!authHeader) {
+      return new Response(
+        JSON.stringify({ error: "请先登录" }),
+        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // Create Supabase client with user's auth token
+    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
+    // Verify the user's token
+    const token = authHeader.replace('Bearer ', '');
+    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+
+    if (authError || !user) {
+      console.error("Auth error:", authError);
+      return new Response(
+        JSON.stringify({ error: "认证失败，请重新登录" }),
+        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    console.log("User authenticated:", user.id);
+
+    // Check and deduct credits
+    const { data: deductResult, error: deductError } = await supabase.rpc('deduct_credit', {
+      p_user_id: user.id
+    });
+
+    if (deductError) {
+      console.error("Error deducting credits:", deductError);
+      return new Response(
+        JSON.stringify({ error: "积分扣除失败，请稍后重试" }),
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    if (!deductResult) {
+      console.log("Insufficient credits for user:", user.id);
+      return new Response(
+        JSON.stringify({ error: "积分不足，请充值后继续使用" }),
+        { status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    console.log("Credit deducted successfully for user:", user.id);
+
     const { imageBase64 } = await req.json();
     
     if (!imageBase64) {
@@ -59,13 +111,13 @@ serve(async (req) => {
       
       if (response.status === 429) {
         return new Response(
-          JSON.stringify({ error: "Rate limit exceeded. Please try again later." }),
+          JSON.stringify({ error: "请求过于频繁，请稍后重试" }),
           { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
       if (response.status === 402) {
         return new Response(
-          JSON.stringify({ error: "Usage limit reached. Please add credits to continue." }),
+          JSON.stringify({ error: "服务额度已用完，请联系管理员" }),
           { status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
@@ -83,7 +135,7 @@ serve(async (req) => {
       throw new Error("No image generated in response");
     }
 
-    console.log("Successfully generated white background image");
+    console.log("Successfully generated white background image for user:", user.id);
 
     return new Response(
       JSON.stringify({ 
@@ -97,7 +149,7 @@ serve(async (req) => {
     console.error("Error in generate-white-bg function:", error);
     return new Response(
       JSON.stringify({ 
-        error: error instanceof Error ? error.message : "Failed to process image" 
+        error: error instanceof Error ? error.message : "处理失败，请稍后重试" 
       }),
       { 
         status: 500, 
