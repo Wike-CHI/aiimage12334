@@ -1,23 +1,19 @@
 import { useState, useEffect, createContext, useContext, ReactNode } from 'react';
-import { User, Session } from '@supabase/supabase-js';
-import { supabase } from '@/integrations/supabase/client';
+import { authAPI } from '@/integrations/api/client';
 
-interface Profile {
-  id: string;
-  email: string | null;
+interface User {
+  id: number;
+  email: string;
   credits: number;
   created_at: string;
-  updated_at: string;
 }
 
 interface AuthContextType {
   user: User | null;
-  session: Session | null;
-  profile: Profile | null;
   loading: boolean;
   signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
   signUp: (email: string, password: string) => Promise<{ error: Error | null }>;
-  signOut: () => Promise<void>;
+  signOut: () => void;
   refreshProfile: () => Promise<void>;
 }
 
@@ -25,101 +21,67 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
-  const [session, setSession] = useState<Session | null>(null);
-  const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const fetchProfile = async (userId: string) => {
-    const { data, error } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', userId)
-      .single();
-    
-    if (error) {
-      console.error('Error fetching profile:', error);
-      return null;
+  const fetchProfile = async () => {
+    try {
+      const response = await authAPI.me();
+      setUser(response.data);
+    } catch {
+      console.error('Error fetching profile');
+      setUser(null);
     }
-    return data as Profile;
   };
 
   const refreshProfile = async () => {
-    if (user) {
-      const profileData = await fetchProfile(user.id);
-      setProfile(profileData);
-    }
+    await fetchProfile();
   };
 
   useEffect(() => {
-    // Set up auth state listener FIRST
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (event, session) => {
-        setSession(session);
-        setUser(session?.user ?? null);
-        
-        // Defer profile fetch with setTimeout
-        if (session?.user) {
-          setTimeout(() => {
-            fetchProfile(session.user.id).then(setProfile);
-          }, 0);
-        } else {
-          setProfile(null);
-        }
-      }
-    );
-
-    // THEN check for existing session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setUser(session?.user ?? null);
-      
-      if (session?.user) {
-        fetchProfile(session.user.id).then((profileData) => {
-          setProfile(profileData);
-          setLoading(false);
-        });
-      } else {
-        setLoading(false);
-      }
-    });
-
-    return () => subscription.unsubscribe();
+    // Check for existing token
+    const token = localStorage.getItem('token');
+    if (token) {
+      fetchProfile().finally(() => setLoading(false));
+    } else {
+      setLoading(false);
+    }
   }, []);
 
   const signIn = async (email: string, password: string) => {
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
-    return { error: error as Error | null };
+    try {
+      const response = await authAPI.login(email, password);
+      const { access_token } = response.data;
+      localStorage.setItem('token', access_token);
+      await fetchProfile();
+      return { error: null };
+    } catch (error) {
+      const axiosError = error as { response?: { data?: { detail?: string } } };
+      return { error: new Error(axiosError.response?.data?.detail || 'Login failed') };
+    }
   };
 
   const signUp = async (email: string, password: string) => {
-    const redirectUrl = `${window.location.origin}/`;
-    
-    const { error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        emailRedirectTo: redirectUrl,
-      },
-    });
-    return { error: error as Error | null };
+    try {
+      const response = await authAPI.register(email, password);
+      const { access_token } = response.data;
+      localStorage.setItem('token', access_token);
+      await fetchProfile();
+      return { error: null };
+    } catch (error) {
+      const axiosError = error as { response?: { data?: { detail?: string } } };
+      return { error: new Error(axiosError.response?.data?.detail || 'Registration failed') };
+    }
   };
 
-  const signOut = async () => {
-    await supabase.auth.signOut();
+  const signOut = () => {
+    localStorage.removeItem('token');
     setUser(null);
-    setSession(null);
-    setProfile(null);
   };
 
   return (
     <AuthContext.Provider
       value={{
         user,
-        session,
-        profile,
         loading,
         signIn,
         signUp,

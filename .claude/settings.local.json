@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(netstat:*)",
+      "Bash(findstr:*)",
+      "Bash(pip install:*)",
+      "Bash(openspec list)",
+      "Bash(openspec list:*)",
+      "Bash(openspec show:*)",
+      "Bash(python -m py_compile:*)"
+    ]
+  }
+}

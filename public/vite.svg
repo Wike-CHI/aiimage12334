@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <!-- 背景：白色圆角矩形 -->
+  <rect x="64" y="64" width="384" height="384" rx="32" ry="32" fill="#ffffff" stroke="#e5e7eb" stroke-width="8"/>
+
+  <!-- 图片/相框边框 -->
+  <rect x="112" y="112" width="288" height="220" rx="8" ry="8" fill="#f3f4f6" stroke="#d1d5db" stroke-width="4"/>
+
+  <!-- 图片内容：山形图案 -->
+  <path d="M112 332 L200 200 L260 280 L350 150 L400 332" fill="none" stroke="#6366f1" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- 太阳 -->
+  <circle cx="320" cy="180" r="24" fill="#fbbf24"/>
+
+  <!-- 下方小图示意 -->
+  <rect x="112" y="352" width="80" height="80" rx="8" ry="8" fill="#f3f4f6" stroke="#d1d5db" stroke-width="3"/>
+  <rect x="208" y="352" width="80" height="80" rx="8" ry="8" fill="#f3f4f6" stroke="#d1d5db" stroke-width="3"/>
+  <rect x="304" y="352" width="96" height="80" rx="8" ry="8" fill="#f3f4f6" stroke="#6366f1" stroke-width="3"/>
+
+  <!-- 小勾：表示完成/生成 -->
+  <path d="M340 392 L358 410 L382 378" fill="none" stroke="#22c55e" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

@@ -1,73 +1,43 @@
-# Welcome to your Lovable project
+# 白底图生成器
 
-## Project info
+一个基于 AI 的白底图生成工具，可一键去除图片背景，生成纯净的白底商品图。
 
-**URL**: https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID
+## 技术栈
 
-## How can I edit this code?
+- **前端框架**: React 18 + TypeScript + Vite
+- **UI 组件**: shadcn/ui + Tailwind CSS
+- **后端服务**: Supabase (Auth + Database + Edge Functions)
+- **状态管理**: TanStack Query
+- **AI 模型**: Gemini 3 Pro Image
 
-There are several ways of editing your application.
+## 快速开始
 
-**Use Lovable**
+```bash
+# 安装依赖
+npm install
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and start prompting.
-
-Changes made via Lovable will be committed automatically to this repo.
-
-**Use your preferred IDE**
-
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
-
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
-
-Follow these steps:
-
-```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
-
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
-
-# Step 3: Install the necessary dependencies.
-npm i
-
-# Step 4: Start the development server with auto-reloading and an instant preview.
+# 启动开发服务器
 npm run dev
+
+# 构建生产版本
+npm run build
 ```
 
-**Edit a file directly in GitHub**
+## 主要功能
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+- 图片上传与预览
+- AI 智能去除背景
+- 可配置输出分辨率和宽高比
+- 用户登录与积分系统
+- 任务历史记录（实时更新）
+- 图片下载
 
-**Use GitHub Codespaces**
+## 环境变量
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+需要配置以下环境变量（.env 文件）:
 
-## What technologies are used for this project?
-
-This project is built with:
-
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
-
-## How can I deploy this project?
-
-Simply open [Lovable](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and click on Share -> Publish.
-
-## Can I connect a custom domain to my Lovable project?
-
-Yes, you can!
-
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
-
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
+```env
+VITE_SUPABASE_URL=你的Supabase项目URL
+VITE_SUPABASE_PUBLISHABLE_KEY=你的Supabase发布密钥
+VITE_SUPABASE_PROJECT_ID=你的Supabase项目ID
+```
