@@ -1,14 +1,28 @@
 // FastAPI 后端客户端
 import axios from 'axios';
+import { API_CONFIG, IMAGE_CONFIG } from '@/config';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
-
+// 使用集中配置中的 API 基础 URL（必需从环境变量读取）
 export const api = axios.create({
-  baseURL: API_BASE_URL,
+  baseURL: API_CONFIG.baseURL,
+  timeout: API_CONFIG.timeout,
   headers: {
     'Content-Type': 'application/json',
   },
 });
+
+// 图片 URL 构建工具函数
+export const imageUtils = {
+  // 获取上传图片的完整 URL
+  getUploadUrl: (path: string | null | undefined): string => {
+    return IMAGE_CONFIG.getImageUrl(path);
+  },
+  
+  // 获取结果图片的完整 URL
+  getResultUrl: (path: string | null | undefined): string => {
+    return IMAGE_CONFIG.getImageUrl(path);
+  },
+};
 
 // 请求拦截器 - 添加 JWT token
 api.interceptors.request.use((config) => {
@@ -50,7 +64,8 @@ export const authAPI = {
     api.put('/api/auth/me', data),
 };
 
-// Generation API
+// Generation API - V1 (Deprecated, use V2 instead)
+// @deprecated Use generationV2API instead for synchronous processing
 export const generationAPI = {
   generate: (file: File, width: number = 1024, height: number = 1024, ratio: string = "1:1") => {
     const formData = new FormData();
@@ -69,4 +84,87 @@ export const generationAPI = {
   getCredits: () => api.get('/api/credits'),
 
   getTaskDetail: (taskId: number) => api.get(`/api/tasks/${taskId}`),
+
+  deleteTask: (taskId: number) => api.delete(`/api/tasks/${taskId}/delete`),
+
+  cancelTask: (taskId: number) => api.delete(`/api/tasks/${taskId}/cancel`),
+
+  continueTask: (taskId: number, width: number = 1024, height: number = 1024, ratio: string = "1:1") => {
+    return api.post(`/api/tasks/${taskId}/continue`, null, {
+      params: { width, height, ratio }
+    });
+  },
+};
+
+// V2 Generation API - Synchronous processing (recommended)
+export const generationV2API = {
+  /**
+   * 上传并处理图片（同步接口，直接返回结果）
+   * @param file - 图片文件
+   * @param options - 处理选项
+   * @returns Promise with processing result
+   */
+  process: (
+    file: File,
+    options?: {
+      templateIds?: string[];
+      customPrompt?: string;
+      timeoutSeconds?: number;
+    }
+  ) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    
+    if (options?.templateIds) {
+      options.templateIds.forEach((id, index) => {
+        formData.append(`template_ids[${index}]`, id);
+      });
+    }
+    
+    if (options?.customPrompt) {
+      formData.append('custom_prompt', options.customPrompt);
+    }
+    
+    if (options?.timeoutSeconds) {
+      formData.append('timeout_seconds', options.timeoutSeconds.toString());
+    }
+    
+    return api.post('/api/v2/process/upload', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+  },
+
+  /**
+   * 预览组合后的提示词
+   * @param templateIds - 模板ID列表
+   * @param productCategory - 产品类目
+   * @returns Promise with preview result
+   */
+  previewPrompt: (templateIds: string[], productCategory: string = "服装") =>
+    api.post('/api/v2/preview', { template_ids: templateIds, product_category: productCategory }),
+
+  /**
+   * 获取可用的提示词模板列表
+   * @returns Promise with template list
+   */
+  getTemplates: () => api.get('/api/v2/templates'),
+
+  /**
+   * 获取模板详情
+   * @param templateId - 模板ID
+   * @returns Promise with template detail
+   */
+  getTemplate: (templateId: string) => api.get(`/api/v2/templates/${templateId}`),
+
+  /**
+   * 获取可用的模板链列表
+   * @returns Promise with chain list
+   */
+  getChains: () => api.get('/api/v2/chains'),
+
+  /**
+   * 获取模板分类列表
+   * @returns Promise with category list
+   */
+  getCategories: () => api.get('/api/v2/templates/categories'),
 };

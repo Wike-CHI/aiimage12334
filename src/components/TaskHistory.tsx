@@ -1,11 +1,13 @@
 import { useState } from "react";
 import { format } from "date-fns";
 import { zhCN } from "date-fns/locale";
-import { Download, Eye, Clock, CheckCircle, XCircle, ArrowLeft } from "lucide-react";
+import { Download, Eye, Clock, CheckCircle, XCircle, ArrowLeft, Play, Trash2, Ban } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
+import { generationAPI } from "@/integrations/api/client";
+import { useToast } from "@/hooks/use-toast";
 
 interface Task {
   id: number;
@@ -36,6 +38,12 @@ const statusConfig: Record<string, { icon: typeof Clock; label: string; color: s
 export function TaskHistory({ tasks, onRefresh, onSelect }: TaskHistoryProps) {
   const [previewImage, setPreviewImage] = useState<{ src: string; title: string } | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [loadingTasks, setLoadingTasks] = useState<Set<number>>(new Set());
+  const { toast } = useToast();
+
+  const isActiveTask = (status: string) => status === "pending" || status === "processing";
+  const isCompletedTask = (status: string) => status === "completed";
+  const isFailedTask = (status: string) => status === "failed" || status === "cancelled";
 
   const handleDownload = async (url: string) => {
     try {
@@ -51,8 +59,77 @@ export function TaskHistory({ tasks, onRefresh, onSelect }: TaskHistoryProps) {
       document.body.removeChild(link);
       URL.revokeObjectURL(blobUrl);
     } catch {
-      // Fallback: open in new tab
       window.open(url, '_blank');
+    }
+  };
+
+  const handleCancel = async (taskId: number) => {
+    if (!confirm("确定要取消这个任务吗？")) return;
+
+    setLoadingTasks(prev => new Set(prev).add(taskId));
+    try {
+      await generationAPI.cancelTask(taskId);
+      toast({ title: "已取消", description: "任务已停止" });
+      onRefresh();
+    } catch (error) {
+      toast({
+        title: "操作失败",
+        description: error instanceof Error ? error.message : "请稍后重试",
+        variant: "destructive"
+      });
+    } finally {
+      setLoadingTasks(prev => {
+        const next = new Set(prev);
+        next.delete(taskId);
+        return next;
+      });
+    }
+  };
+
+  const handleContinue = async (taskId: number) => {
+    setLoadingTasks(prev => new Set(prev).add(taskId));
+    try {
+      const result = await generationAPI.continueTask(taskId);
+      toast({
+        title: "已开始生成",
+        description: `新任务ID: ${result.data.db_task_id}`,
+      });
+      onRefresh();
+    } catch (error) {
+      toast({
+        title: "操作失败",
+        description: error instanceof Error ? error.message : "请稍后重试",
+        variant: "destructive"
+      });
+    } finally {
+      setLoadingTasks(prev => {
+        const next = new Set(prev);
+        next.delete(taskId);
+        return next;
+      });
+    }
+  };
+
+  const handleDelete = async (taskId: number) => {
+    if (!confirm("确定要删除这个任务吗？删除后无法恢复。")) return;
+
+    setLoadingTasks(prev => new Set(prev).add(taskId));
+    try {
+      await generationAPI.deleteTask(taskId);
+      toast({ title: "已删除", description: "任务已从历史记录中移除" });
+      onRefresh();
+    } catch (error) {
+      toast({
+        title: "操作失败",
+        description: error instanceof Error ? error.message : "请稍后重试",
+        variant: "destructive"
+      });
+    } finally {
+      setLoadingTasks(prev => {
+        const next = new Set(prev);
+        next.delete(taskId);
+        return next;
+      });
     }
   };
 
@@ -74,6 +151,7 @@ export function TaskHistory({ tasks, onRefresh, onSelect }: TaskHistoryProps) {
             const status = statusConfig[task.status as keyof typeof statusConfig] || statusConfig.PENDING;
             const StatusIcon = status.icon;
             const resolution = `${task.width}x${task.height}`;
+            const isLoading = loadingTasks.has(task.id);
 
             return (
               <div
@@ -137,6 +215,45 @@ export function TaskHistory({ tasks, onRefresh, onSelect }: TaskHistoryProps) {
                       onClick={() => handleDownload(task.result_image_url!)}
                     >
                       <Download className="w-4 h-4" />
+                    </Button>
+                  )}
+
+                  {/* Cancel button for active tasks */}
+                  {isActiveTask(task.status) && (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 text-amber-500"
+                      onClick={() => handleCancel(task.id)}
+                      disabled={isLoading}
+                    >
+                      <Ban className="w-4 h-4" />
+                    </Button>
+                  )}
+
+                  {/* Continue button for failed tasks */}
+                  {isFailedTask(task.status) && (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 text-blue-500"
+                      onClick={() => handleContinue(task.id)}
+                      disabled={isLoading}
+                    >
+                      <Play className="w-4 h-4" />
+                    </Button>
+                  )}
+
+                  {/* Delete button for completed or failed tasks */}
+                  {(isCompletedTask(task.status) || isFailedTask(task.status)) && (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 text-destructive"
+                      onClick={() => handleDelete(task.id)}
+                      disabled={isLoading}
+                    >
+                      <Trash2 className="w-4 h-4" />
                     </Button>
                   )}
                 </div>

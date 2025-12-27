@@ -8,6 +8,48 @@ from datetime import datetime
 from app.models import TaskStatus
 
 
+def build_full_url(path: str | None) -> str | None:
+    """
+    构建完整的图片 URL
+
+    如果 path 是相对路径，则根据后端服务配置构建完整 URL
+    如果 path 已经是完整 URL，则直接返回
+
+    Args:
+        path: 图片路径（可能是相对路径如 'uploads/xxx.png' 或完整 URL）
+
+    Returns:
+        完整的图片 URL
+    """
+    if not path:
+        return None
+
+    # 如果已经是完整 URL，直接返回
+    if path.startswith('http://') or path.startswith('https://'):
+        return path
+
+    # 导入配置获取服务器信息
+    from app.config import get_settings
+    settings = get_settings()
+
+    # 获取后端服务器地址和端口
+    # 优先使用 BACKEND_HOST 和 BACKEND_PORT 配置
+    host = getattr(settings, 'BACKEND_HOST', None) or settings.DB_HOST
+    port = getattr(settings, 'BACKEND_PORT', None) or 8001
+
+    # 构建基础 URL
+    if host in ('localhost', '127.0.0.1'):
+        base_url = f"http://localhost:{port}"
+    else:
+        base_url = f"http://{host}:{port}"
+
+    # 确保 path 以 / 开头
+    if not path.startswith('/'):
+        path = '/' + path
+
+    return f"{base_url}{path}"
+
+
 # ============ 用户相关 Schema ============
 
 class UserCreate(BaseModel):
@@ -82,13 +124,9 @@ class TaskStatusResponse(BaseModel):
 
     @field_validator('original_image_url', 'result_image_url', mode='before')
     @classmethod
-    def add_base_url(cls, v, info):
-        if v and not v.startswith('http'):
-            from app.config import get_settings
-            settings = get_settings()
-            base_url = f"http://{settings.DB_HOST}:8000" if settings.DB_HOST != 'localhost' else "http://localhost:8000"
-            v = f"{base_url}/{v}"
-        return v
+    def ensure_full_url(cls, v, info):
+        """确保图片 URL 是完整的"""
+        return build_full_url(v)
 
     class Config:
         from_attributes = True

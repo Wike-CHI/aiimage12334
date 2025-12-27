@@ -38,7 +38,7 @@ const Index = () => {
   const [processedImage, setProcessedImage] = useState<string | null>(null);
   const [processedCacheKey, setProcessedCacheKey] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [resolution, setResolution] = useState<number>(0);
+  const [resolution, setResolution] = useState<string>("0");
   const [ratio, setRatio] = useState("original");
   const [activeTab, setActiveTab] = useState("generate");
   const { toast } = useToast();
@@ -87,29 +87,75 @@ const Index = () => {
       const file = new File([blob], "image.png", { type: "image/png" });
 
       // 解析分辨率 (0=原始尺寸)
-      const size = resolution || 1024;
-      const result = await generationAPI.generate(file, size, size, ratio);
+      const size = parseInt(resolution, 10) || 1024;
 
-      if (result.data && result.data.result_image_url) {
-        setProcessedImage(result.data.result_image_url);
+      // 提交任务
+      const submitResult = await generationAPI.generate(file, size, size, ratio);
 
-        // Cache the processed image
-        const taskId = result.data.id || Date.now();
-        const newCacheKey = `task:${taskId}`;
-        await cacheTaskImage(taskId, blob, size, size);
-        setProcessedCacheKey(newCacheKey);
-
-        // Refresh profile to update credits display
-        await refreshProfile();
-        // Refresh tasks to show new history
-        refetchTasks();
-        toast({
-          title: "生成成功",
-          description: `白底图已生成，剩余积分: ${(user?.credits ?? 1) - 1}`,
-        });
-      } else {
-        throw new Error(result.data?.error || "未能生成图片");
+      if (!submitResult.data || !submitResult.data.db_task_id) {
+        throw new Error("任务提交失败");
       }
+
+      const taskId = submitResult.data.db_task_id;
+      const maxPollingAttempts = 120; // 最多轮询120次（每次5秒，共10分钟）
+      const pollingInterval = 5000; // 轮询间隔5秒
+
+      toast({
+        title: "任务已提交",
+        description: "正在生成白底图，请稍候...",
+      });
+
+      // 轮询任务状态
+      let attempt = 0;
+      let taskStatus = null;
+      let taskResult = null;
+
+      while (attempt < maxPollingAttempts) {
+        await new Promise(resolve => setTimeout(resolve, pollingInterval));
+        attempt++;
+
+        try {
+          const statusResponse = await generationAPI.getTaskDetail(taskId);
+          taskStatus = statusResponse.data.status;
+          taskResult = statusResponse.data;
+
+          if (taskStatus === "completed") {
+            // 任务完成
+            if (taskResult.result_image_url) {
+              setProcessedImage(taskResult.result_image_url);
+
+              // Cache the processed image
+              const newCacheKey = `task:${taskId}`;
+              await cacheTaskImage(taskId, blob, size, size);
+              setProcessedCacheKey(newCacheKey);
+
+              // Refresh profile to update credits display
+              await refreshProfile();
+              // Refresh tasks to show new history
+              refetchTasks();
+
+              toast({
+                title: "生成成功",
+                description: `白底图已生成，剩余积分: ${(user?.credits ?? 1) - 1}`,
+              });
+              return; // 成功返回
+            }
+          } else if (taskStatus === "failed") {
+            // 任务失败
+            throw new Error(taskResult.error_message || "任务执行失败");
+          } else if (taskStatus === "processing") {
+            // 继续轮询...
+            continue;
+          }
+        } catch (pollError) {
+          console.error("轮询任务状态失败:", pollError);
+          // 继续尝试轮询
+        }
+      }
+
+      // 轮询超时
+      throw new Error("任务处理超时，请稍后查看历史记录");
+
     } catch (error) {
       console.error("Error generating white background:", error);
       toast({
@@ -162,7 +208,7 @@ const Index = () => {
     }
   }, [processedImage, toast]);
 
-  const handleSelectTask = useCallback(async (task: { id: number; processed_image_url: string | null; original_image_url: string | null }) => {
+  const handleSelectTask = useCallback(async (task: { id: number; result_image_url: string | null; original_image_url: string | null }) => {
     const cacheKey = `task:${task.id}`;
 
     // Try to load from cache first
@@ -171,8 +217,8 @@ const Index = () => {
     if (cachedImage) {
       setProcessedImage(cachedImage);
       setProcessedCacheKey(cacheKey);
-    } else if (task.processed_image_url) {
-      setProcessedImage(task.processed_image_url);
+    } else if (task.result_image_url) {
+      setProcessedImage(task.result_image_url);
       setProcessedCacheKey(null);
     }
 
@@ -263,7 +309,7 @@ const Index = () => {
                             </SelectTrigger>
                             <SelectContent>
                               {RESOLUTIONS.map((r) => (
-                                <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>
+                                <SelectItem key={r.value} value={String(r.value)}>{r.label}</SelectItem>
                               ))}
                             </SelectContent>
                           </Select>

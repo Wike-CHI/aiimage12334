@@ -49,6 +49,113 @@ def convert_db_status(db_status: DBTaskStatus) -> TaskStatus:
     return status_mapping.get(db_status, TaskStatus.PENDING)
 
 
+def _resubmit_task_internal(
+    task_id: int,
+    deduct_credits: bool,
+    width: int,
+    height: int,
+    ratio: str,
+    current_user: User,
+    db: Session
+) -> TaskSubmitResponse:
+    """
+    重新提交任务的内部实现
+
+    Args:
+        task_id: 原任务ID
+        deduct_credits: 是否扣除积分
+        width: 输出宽度
+        height: 输出高度
+        ratio: 宽高比
+        current_user: 当前用户
+        db: 数据库会话
+
+    Returns:
+        TaskSubmitResponse: 提交响应
+    """
+    # 获取原任务
+    original_task = db.query(GenerationTask).filter(
+        GenerationTask.id == task_id,
+        GenerationTask.user_id == current_user.id
+    ).first()
+
+    if not original_task:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Task not found"
+        )
+
+    # 检查是否可以重新提交
+    if original_task.status == DBTaskStatus.PROCESSING:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Task is still processing"
+        )
+
+    # 检查任务状态是否允许重新提交
+    allowed_statuses = [DBTaskStatus.FAILED, DBTaskStatus.CANCELLED]
+    if original_task.status not in allowed_statuses:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Task cannot be resubmitted. Only failed or cancelled tasks can be resubmitted."
+        )
+
+    # 扣积分逻辑
+    if deduct_credits:
+        if current_user.credits < 1:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Insufficient credits"
+            )
+        current_user.credits -= 1
+
+    # 生成新的任务ID
+    new_task_id = str(uuid.uuid4())
+    result_filename = f"{new_task_id}_result.png"
+
+    # 使用原图
+    original_path = original_task.original_image_url
+    result_path = os.path.join(RESULT_DIR, result_filename)
+
+    # 创建新任务记录
+    new_task = GenerationTask(
+        user_id=current_user.id,
+        original_image_url=original_path,
+        result_image_url=None,
+        status=DBTaskStatus.PENDING,
+        credits_used=1 if deduct_credits else 0,
+        width=width,
+        height=height,
+        error_message=None
+    )
+    db.add(new_task)
+    db.commit()
+    db.refresh(new_task)
+
+    # 提交到任务队列
+    task_queue.submit_task(
+        user_id=current_user.id,
+        task_func=remove_background_with_gemini_async,
+        args=(original_path, result_path, width, height, ratio),
+        kwargs={"timeout_seconds": 180},
+        timeout_seconds=200
+    )
+
+    # 更新新任务状态
+    new_task.status = DBTaskStatus.PROCESSING
+    db.commit()
+
+    logger.info(f"Resubmit task {new_task_id} created from original task {task_id}")
+
+    return TaskSubmitResponse(
+        task_id=new_task_id,
+        status=TaskStatus.PROCESSING.value,
+        message="Task resubmitted successfully",
+        estimated_time=60,
+        db_task_id=new_task.id
+    )
+
+
 def convert_queue_status(queue_status: TaskStatus) -> DBTaskStatus:
     """将队列任务状态转换为数据库任务状态"""
     status_mapping = {
@@ -276,7 +383,7 @@ def get_task_status(
 def retry_task(
     task_id: int,
     width: int = Query(1024, ge=100, le=4096),
-    height: int = Query(1024, ge=100, se=4096),
+    height: int = Query(1024, ge=100, le=4096),
     ratio: str = Query("1:1"),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
@@ -285,9 +392,79 @@ def retry_task(
     重试失败的任务
 
     - 只能重试失败或超时的任务
-    - 不会扣除额外积分
+    - 不会扣除积分
     """
-    # 获取原任务
+    # 调用内部实现，不扣积分
+    return _resubmit_task_internal(
+        task_id=task_id,
+        deduct_credits=False,  # 重试不扣积分
+        width=width,
+        height=height,
+        ratio=ratio,
+        current_user=current_user,
+        db=db
+    )
+
+
+@router.delete("/tasks/{task_id}/delete")
+def delete_task(
+    task_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    删除任务（从历史记录中移除）
+
+    - 只能删除已完成、失败或取消的任务
+    - 删除后任务将不再显示在历史记录中
+    """
+    task = db.query(GenerationTask).filter(
+        GenerationTask.id == task_id,
+        GenerationTask.user_id == current_user.id
+    ).first()
+
+    if not task:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Task not found"
+        )
+
+    # 只能删除非活跃状态的任务
+    if task.status in [DBTaskStatus.PENDING, DBTaskStatus.PROCESSING]:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot delete active tasks. Please cancel first."
+        )
+
+    # 从数据库删除
+    db.delete(task)
+    db.commit()
+
+    # 如果队列中有对应任务，也移除
+    queue_task = task_queue.get_task(str(task_id))
+    if queue_task:
+        del task_queue._tasks[str(task_id)]
+
+    return {"message": "Task deleted successfully"}
+
+
+@router.post("/tasks/{task_id}/continue", response_model=TaskSubmitResponse)
+def continue_task(
+    task_id: int,
+    width: int = Query(1024, ge=100, le=4096),
+    height: int = Query(1024, ge=100, le=4096),
+    ratio: str = Query("1:1"),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    继续生成失败或被取消的任务
+
+    - 使用原图重新提交到任务队列
+    - 失败的任务会扣除积分重新生成
+    - 被取消的任务不会再次扣除积分
+    """
+    # 获取原任务以确定是否扣积分
     original_task = db.query(GenerationTask).filter(
         GenerationTask.id == task_id,
         GenerationTask.user_id == current_user.id
@@ -299,77 +476,57 @@ def retry_task(
             detail="Task not found"
         )
 
-    # 检查是否可以重试
-    queue_task = task_queue.get_task(str(task_id))
-    can_retry = False
+    # 失败的任务扣积分，取消的任务不扣积分
+    deduct_credits = original_task.status == DBTaskStatus.FAILED
 
-    if queue_task:
-        can_retry = queue_task.status in [TaskStatus.FAILED, TaskStatus.TIMEOUT]
-    else:
-        can_retry = original_task.status in [DBTaskStatus.FAILED, DBTaskStatus.FAILED]
-
-    if not can_retry:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Task cannot be retried. Only failed or timed out tasks can be retried."
-        )
-
-    # 生成新的任务ID
-    new_task_id = str(uuid.uuid4())
-    original_filename = os.path.basename(original_task.original_image_url)
-    result_filename = f"{new_task_id}_result.png"
-
-    # 使用原图创建新任务
-    original_path = original_task.original_image_url
-    result_path = os.path.join(RESULT_DIR, result_filename)
-
-    # 创建新任务记录
-    new_task = GenerationTask(
-        user_id=current_user.id,
-        original_image_url=original_path,
-        result_image_url=None,
-        status=DBTaskStatus.PENDING,
-        credits_used=0,  # 重试不扣积分
+    # 调用内部实现
+    return _resubmit_task_internal(
+        task_id=task_id,
+        deduct_credits=deduct_credits,
         width=width,
         height=height,
-        error_message=None
-    )
-    db.add(new_task)
-    db.commit()
-    db.refresh(new_task)
-
-    # 提交到任务队列
-    task_queue.submit_task(
-        user_id=current_user.id,
-        task_func=remove_background_with_gemini_async,
-        args=(original_path, result_path, width, height, ratio),
-        kwargs={"timeout_seconds": 180},
-        timeout_seconds=200
-    )
-
-    # 更新新任务状态
-    new_task.status = DBTaskStatus.PROCESSING
-    db.commit()
-
-    logger.info(f"Retry task {new_task_id} created from original task {task_id}")
-
-    return TaskSubmitResponse(
-        task_id=new_task_id,
-        status=TaskStatus.PROCESSING.value,
-        message="Retry task submitted successfully",
-        estimated_time=60,
-        db_task_id=new_task.id
+        ratio=ratio,
+        current_user=current_user,
+        db=db
     )
 
 
-@router.delete("/tasks/{task_id}")
+@router.post("/tasks/{task_id}/resubmit", response_model=TaskSubmitResponse)
+def resubmit_task(
+    task_id: int,
+    deduct_credits: bool = Query(True, description="是否扣除积分，true=扣积分，false=不扣积分"),
+    width: int = Query(1024, ge=100, le=4096),
+    height: int = Query(1024, ge=100, le=4096),
+    ratio: str = Query("1:1"),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    重新提交任务（统一接口）
+
+    - 可用于重试失败/超时的任务，或继续被取消的任务
+    - 通过 deduct_credits 参数控制是否扣除积分
+    - 推荐使用此接口，retry 和 continue 作为快捷方式保留
+    """
+    return _resubmit_task_internal(
+        task_id=task_id,
+        deduct_credits=deduct_credits,
+        width=width,
+        height=height,
+        ratio=ratio,
+        current_user=current_user,
+        db=db
+    )
+
+
+@router.delete("/tasks/{task_id}/cancel")
 def cancel_task(
     task_id: int,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """
-    取消正在处理的任务
+    取消正在处理的任务（立即中止）
     """
     task = db.query(GenerationTask).filter(
         GenerationTask.id == task_id,

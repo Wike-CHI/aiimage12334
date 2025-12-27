@@ -5,6 +5,7 @@
 import asyncio
 import uuid
 import logging
+import threading
 from datetime import datetime, timedelta
 from typing import Dict, Optional, Callable, Any
 from concurrent.futures import ThreadPoolExecutor
@@ -113,6 +114,7 @@ class TaskQueue:
         self._tasks: Dict[str, TaskInfo] = {}
         self._executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="task_worker")
         self._cleanup_task = None
+        self._lock = threading.RLock()
         self._initialized = True
         self._start_cleanup()
 
@@ -145,7 +147,8 @@ class TaskQueue:
             timeout_seconds=timeout_seconds
         )
 
-        self._tasks[task_id] = task_info
+        with self._lock:
+            self._tasks[task_id] = task_info
 
         # 在线程池中执行任务
         self._executor.submit(
@@ -167,10 +170,11 @@ class TaskQueue:
         kwargs: dict
     ):
         """内部任务执行方法"""
-        task_info = self._tasks.get(task_id)
-        if not task_info:
-            logger.error(f"Task {task_id} not found")
-            return
+        with self._lock:
+            task_info = self._tasks.get(task_id)
+            if not task_info:
+                logger.error(f"Task {task_id} not found")
+                return
 
         try:
             # 更新状态为处理中
@@ -229,7 +233,8 @@ class TaskQueue:
 
     def get_task(self, task_id: str) -> Optional[TaskInfo]:
         """获取任务信息"""
-        return self._tasks.get(task_id)
+        with self._lock:
+            return self._tasks.get(task_id)
 
     def get_user_tasks(self, user_id: int, include_completed: bool = True) -> list:
         """
@@ -242,37 +247,40 @@ class TaskQueue:
         Returns:
             list: 任务列表
         """
-        tasks = []
-        for task_info in self._tasks.values():
-            if task_info.user_id == user_id:
-                if include_completed or not task_info.is_completed:
-                    tasks.append(task_info)
-        return sorted(tasks, key=lambda x: x.created_at, reverse=True)
+        with self._lock:
+            tasks = []
+            for task_info in self._tasks.values():
+                if task_info.user_id == user_id:
+                    if include_completed or not task_info.is_completed:
+                        tasks.append(task_info)
+            return sorted(tasks, key=lambda x: x.created_at, reverse=True)
 
     def cancel_task(self, task_id: str) -> bool:
         """取消任务"""
-        task_info = self._tasks.get(task_id)
-        if task_info and task_info.is_active:
-            task_info.status = TaskStatus.CANCELLED
-            task_info.completed_at = datetime.now()
-            logger.info(f"Task {task_id} cancelled")
-            return True
-        return False
+        with self._lock:
+            task_info = self._tasks.get(task_id)
+            if task_info and task_info.is_active:
+                task_info.status = TaskStatus.CANCELLED
+                task_info.completed_at = datetime.now()
+                logger.info(f"Task {task_id} cancelled")
+                return True
+            return False
 
     def cleanup_old_tasks(self, max_age_hours: int = 24):
         """清理旧任务"""
-        cutoff = datetime.now() - timedelta(hours=max_age_hours)
-        tasks_to_remove = []
+        with self._lock:
+            cutoff = datetime.now() - timedelta(hours=max_age_hours)
+            tasks_to_remove = []
 
-        for task_id, task_info in self._tasks.items():
-            if task_info.completed_at and task_info.completed_at < cutoff:
-                tasks_to_remove.append(task_id)
+            for task_id, task_info in self._tasks.items():
+                if task_info.completed_at and task_info.completed_at < cutoff:
+                    tasks_to_remove.append(task_id)
 
-        for task_id in tasks_to_remove:
-            del self._tasks[task_id]
-            logger.info(f"Cleaned up old task {task_id}")
+            for task_id in tasks_to_remove:
+                del self._tasks[task_id]
+                logger.info(f"Cleaned up old task {task_id}")
 
-        return len(tasks_to_remove)
+            return len(tasks_to_remove)
 
     def _start_cleanup(self):
         """启动定期清理任务"""
@@ -289,22 +297,23 @@ class TaskQueue:
 
     def get_queue_stats(self) -> dict:
         """获取队列统计信息"""
-        stats = {
-            "total_tasks": len(self._tasks),
-            "pending": 0,
-            "processing": 0,
-            "completed": 0,
-            "failed": 0,
-            "timeout": 0,
-            "cancelled": 0
-        }
+        with self._lock:
+            stats = {
+                "total_tasks": len(self._tasks),
+                "pending": 0,
+                "processing": 0,
+                "completed": 0,
+                "failed": 0,
+                "timeout": 0,
+                "cancelled": 0
+            }
 
-        for task_info in self._tasks.values():
-            status_key = task_info.status.value if isinstance(task_info.status, TaskStatus) else task_info.status
-            if status_key in stats:
-                stats[status_key] += 1
+            for task_info in self._tasks.values():
+                status_key = task_info.status.value if isinstance(task_info.status, TaskStatus) else task_info.status
+                if status_key in stats:
+                    stats[status_key] += 1
 
-        return stats
+            return stats
 
 
 # 全局任务队列实例

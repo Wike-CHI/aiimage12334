@@ -22,6 +22,10 @@ class Settings(BaseSettings):
     # CORS
     FRONTEND_URL: str = "http://localhost:5173"
 
+    # Backend Server - 用于构建完整的图片 URL
+    BACKEND_HOST: str = "localhost"
+    BACKEND_PORT: int = 8001
+
     class Config:
         # 优先从环境变量读取，然后从 backend/.env 读取
         # 使用绝对路径确保无论从哪里运行都能正确读取

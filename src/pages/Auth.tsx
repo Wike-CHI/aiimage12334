@@ -15,8 +15,8 @@ const authSchema = z.object({
 
 const registerSchema = z.object({
   email: z.string().email('请输入有效的邮箱地址'),
-  password: z.string().min(6, '密码至少需要6个字符'),
-  username: z.string().min(2, '用户名至少需要2个字符').max(20, '用户名不能超过20个字符'),
+  password: z.string().min(8, '密码至少需要8个字符').max(128, '密码不能超过128个字符'),
+  username: z.string().min(2, '用户名至少需要2个字符').max(50, '用户名不能超过50个字符'),
 });
 
 const Auth = () => {
@@ -194,15 +194,15 @@ const Auth = () => {
                 </Label>
                 <div className="relative">
                   <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                  <Input
-                    id="password"
-                    type="password"
-                    placeholder="至少6个字符"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    className="pl-10"
-                    disabled={loading}
-                  />
+<Input
+                      id="password"
+                      type="password"
+                      placeholder="至少8个字符"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      className="pl-10"
+                      disabled={loading}
+                    />
                 </div>
                 {errors.password && (
                   <p className="text-sm text-destructive">{errors.password}</p>

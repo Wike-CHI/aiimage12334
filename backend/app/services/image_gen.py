@@ -10,7 +10,7 @@ from pathlib import Path
 
 from app.config import get_settings
 from google import genai
-from google.genai.errors import APIError, TimeoutError, ResourceExhaustedError
+from google.genai.errors import APIError
 
 logger = logging.getLogger(__name__)
 
@@ -133,7 +133,7 @@ def remove_background_with_gemini(
     # 创建 Gemini 客户端（使用 AIHubMix）
     client = genai.Client(
         api_key=settings.GEMINI_API_KEY,
-        http_options={"base_url": "https://aihubmix.com.v1/gemini"},
+        http_options={"base_url": "http://localhost:8888/gemini"},
     )
 
     # 精细化提示词
@@ -252,15 +252,6 @@ def remove_background_with_gemini(
         raise TimeoutExceededError(
             error_msg,
             code="REQUEST_TIMEOUT",
-            details={"original_error": str(e)}
-        )
-
-    except ResourceExhaustedError as e:
-        error_msg = f"Resource exhausted: {str(e)}"
-        logger.error(error_msg)
-        raise RateLimitError(
-            "API quota exceeded",
-            code="QUOTA_EXCEEDED",
             details={"original_error": str(e)}
         )
 

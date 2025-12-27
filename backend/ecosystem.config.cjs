@@ -16,11 +16,11 @@ module.exports = {
       DB_USER: 'root',
       DB_PASSWORD: '123456',
       DB_NAME: 'white_bg_generator',
-      GEMINI_API_KEY: 'sk-9pI1g5gQqtCuvbzOE0Fb3467901b4cAb801f1cE333F27886',
+      GEMINI_API_KEY: 'sk-yZyfgpg5rgF9JL8k818cBe9e62364213904139E91c2fD7Fa',
       SECRET_KEY: 'your-secret-key-change-in-production',
       ALGORITHM: 'HS256',
       ACCESS_TOKEN_EXPIRE_MINUTES: 30,
-      FRONTEND_URL: 'http://129.211.218.135:34345'
+      FRONTEND_URL: 'http://localhost:8080'
     }
   }]
 };

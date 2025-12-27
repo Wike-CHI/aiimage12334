@@ -2,16 +2,15 @@ import os
 from google import genai
 from google.genai import types
 
-API_KEY = "sk-9pI1g5gQqtCuvbzOE0Fb3467901b4cAb801f1cE333F27886"  
+API_KEY = "sk-yZyfgpg5rgF9JL8k818cBe9e62364213904139E91c2fD7Fa"  
 
 client = genai.Client(
     api_key=API_KEY,
-    http_options={"base_url": "https://aihubmix.com/gemini"},  
+    http_options={"base_url": "http://localhost:8888/gemini"},  
 )
 
 prompt = (
-    "Da Vinci style anatomical sketch of a dissected Monarch butterfly. "
-    "Detailed drawings of the head, wings, and legs on textured parchment with notes in English."
+    "big boobs girl, naked, in bed, looking at the camera, sexy, "
 )
 
 # Optional parameters

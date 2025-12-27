@@ -11,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse
 
-from app.routes import auth, generation
+from app.routes import auth, generation, generation_v2
 from app.database import engine, Base
 from app.config import get_settings
 from app.services.task_queue import task_queue
@@ -57,10 +57,13 @@ app.add_middleware(
         settings.FRONTEND_URL,  # 从环境变量读取
         "http://localhost:34345",  # Tauri 开发
         "http://localhost:5173",  # Vite dev server
+        "http://localhost:8080",  # Vite alternative port
         "http://127.0.0.1:34345",
         "http://127.0.0.1:5173",
+        "http://127.0.0.1:8080",
         "http://129.211.218.135:34345",  # Tauri 公网
         "http://129.211.218.135",  # 公网访问
+        "http://129.211.218.135:8080",
         "*",  # 生产环境允许所有（可根据需要调整）
     ],
     allow_credentials=True,
@@ -69,8 +72,9 @@ app.add_middleware(
 )
 
 # 路由
-app.include_router(auth.router, prefix="/api/auth", tags=["认证"])
-app.include_router(generation.router, prefix="/api", tags=["图片生成"])
+app.include_router(auth.router, tags=["认证"])
+app.include_router(generation.router, tags=["图片生成"])
+app.include_router(generation_v2.router, tags=["图片生成V2"])
 
 # 静态文件服务 - 上传的图片和生成结果
 app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
