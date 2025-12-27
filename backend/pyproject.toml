@@ -1,0 +1,58 @@
+[tool.pyright]
+# Python 环境配置
+pythonVersion = "3.11"
+pythonPlatform = "Linux"
+
+# 虚拟环境路径配置
+venvPath = ".."
+venv = ".venv"
+
+# 报告缺失的导入
+reportMissingImports = true
+reportMissingTypeStubs = false
+
+# 忽略特定错误
+ignore = [
+    # 可以在这里添加需要忽略的错误代码
+]
+
+[tool.pyright.stub]
+# 类型存根配置
+pydantic = "pydantic-stubs"
+pydantic-settings = "pydantic-settings-stubs"
+
+[tool.pytest]
+# Pytest 配置
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "aiimage-backend"
+version = "1.0.0"
+description = "白底图生成器后端服务"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.109.0",
+    "uvicorn[standard]>=0.27.0",
+    "pydantic>=2.12.5",
+    "pydantic-settings>=2.1.0",
+    "email-validator>=2.1.0",
+    "sqlalchemy>=2.0.25",
+    "pymysql>=1.1.0",
+    "cryptography>=42.0.0",
+    "python-jose[cryptography]>=3.3.0",
+    "bcrypt>=4.2.0",
+    "httpx>=0.26.0",
+    "aiofiles>=23.2.1",
+    "python-multipart>=0.0.6",
+    "python-dotenv>=1.0.0",
+    "Pillow>=10.4.0",
+    "google-genai>=1.0.0",
+]
+

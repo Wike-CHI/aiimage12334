@@ -24,7 +24,8 @@ class Settings(BaseSettings):
 
     class Config:
         # 优先从环境变量读取，然后从 backend/.env 读取
-        env_file = os.environ.get("APP_ENV_FILE", "backend/.env")
+        # 使用绝对路径确保无论从哪里运行都能正确读取
+        env_file = os.environ.get("APP_ENV_FILE", os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env"))
         env_file_encoding = "utf-8"
         case_sensitive = True
 

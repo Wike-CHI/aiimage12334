@@ -15,7 +15,7 @@ python-jose[cryptography]==3.3.0
 bcrypt==4.2.0
 
 # HTTP & File
-httpx==0.26.0
+httpx>=0.28.1
 aiofiles==23.2.1
 python-multipart==0.0.6
 
@@ -24,7 +24,7 @@ python-dotenv==1.0.0
 
 # Image Processing
 Pillow==10.4.0
-google-genai==1.0.0
+google-genai==1.56.0
 
 # Testing
 pytest==8.3.4

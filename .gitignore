@@ -65,3 +65,6 @@ frontend/dist
 # 后端项目构建结果
 backend/dist
 backend/build
+
+venv3.11/
+.venv312
