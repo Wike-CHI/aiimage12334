@@ -1,0 +1,16 @@
+# 忽略所有 .log 文件
+*.log
+# 允许 .env 文件
+!.env
+!.env.example
+!.env.local
+!.env.development.local
+!.env.test.local
+!.env.production.local
+!.env.development
+!.env.test
+!.env.production
+!.env.local
+!.env.development.local
+!.env.test.local
+!.env.production.local

@@ -16,14 +16,18 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# CORS 配置 - 支持 Tauri (8080) 和 Vite (5173) 开发服务器
+# CORS 配置 - 支持本地开发和公网访问
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        settings.FRONTEND_URL,  # http://localhost:8080
+        settings.FRONTEND_URL,  # 从环境变量读取
+        "http://localhost:8080",  # Tauri 开发
         "http://localhost:5173",  # Vite dev server
         "http://127.0.0.1:8080",
         "http://127.0.0.1:5173",
+        "http://129.211.218.135:8080",  # Tauri 公网
+        "http://129.211.218.135",  # 公网访问
+        "*",  # 生产环境允许所有（可根据需要调整）
     ],
     allow_credentials=True,
     allow_methods=["*"],
