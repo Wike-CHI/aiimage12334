@@ -90,7 +90,27 @@ serve(async (req) => {
             content: [
               {
                 type: "text",
-                text: "Please edit this image to have a pure white background. Remove the existing background completely and replace it with a clean, solid white background (#FFFFFF). Keep the main subject/object in the image perfectly intact with all its details, colors, and quality preserved. The result should look like a professional product photo with a seamless white background."
+                text: `Please professionally edit this image to create a high-quality e-commerce product photo with a pure white background (#FFFFFF).
+
+BACKGROUND REMOVAL:
+- Remove the existing background completely and replace with seamless pure white (#FFFFFF)
+- Ensure clean, precise edges around the subject with no halos or artifacts
+- Handle semi-transparent areas (like mesh fabric, lace, sheer materials) naturally
+
+CLOTHING & APPAREL SPECIFIC ENHANCEMENTS:
+- Preserve all fabric textures, patterns, prints, and material details (cotton weave, silk sheen, denim texture, knit patterns, etc.)
+- Maintain accurate colors - do not oversaturate or wash out colors
+- Keep all stitching, seams, buttons, zippers, labels, and embellishments clearly visible
+- Preserve natural fabric folds and draping that show the garment's shape and fit
+- Ensure logos, brand tags, and decorative elements remain sharp and readable
+- Handle reflective materials (sequins, metallic fabrics, leather) with proper lighting
+
+QUALITY REQUIREMENTS:
+- Output should look like professional studio photography
+- Maintain original image resolution and sharpness
+- Natural, soft shadows are acceptable to add depth
+- The product should appear centered and well-lit
+- No color cast from the original background should remain on the product`
               },
               {
                 type: "image_url",
