@@ -7,7 +7,15 @@
       "Bash(openspec list)",
       "Bash(openspec list:*)",
       "Bash(openspec show:*)",
-      "Bash(python -m py_compile:*)"
+      "Bash(python -m py_compile:*)",
+      "Bash(dir:*)",
+      "Bash(npm install:*)",
+      "Bash(.venvScriptsactivate)",
+      "Bash(python -m pytest test_api.py -v --tb=short)",
+      "Bash(cmd:*)",
+      "Bash(d:gsxmaiimage12334backend.venvScriptspython.exe -m pip install pytest pytest-cov pytest-asyncio Pillow -q)",
+      "Bash(powershell -Command:*)",
+      "Bash(pytest:*)"
     ]
   }
 }

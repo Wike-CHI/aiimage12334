@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { z } from 'zod';
-import { Sparkles, Mail, Lock, ArrowLeft } from 'lucide-react';
+import { Sparkles, Mail, Lock, ArrowLeft, User } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -13,13 +13,20 @@ const authSchema = z.object({
   password: z.string().min(6, '密码至少需要6个字符'),
 });
 
+const registerSchema = z.object({
+  email: z.string().email('请输入有效的邮箱地址'),
+  password: z.string().min(6, '密码至少需要6个字符'),
+  username: z.string().min(2, '用户名至少需要2个字符').max(20, '用户名不能超过20个字符'),
+});
+
 const Auth = () => {
   const [isLogin, setIsLogin] = useState(true);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [username, setUsername] = useState('');
   const [loading, setLoading] = useState(false);
-  const [errors, setErrors] = useState<{ email?: string; password?: string }>({});
-  
+  const [errors, setErrors] = useState<{ email?: string; password?: string; username?: string }>({});
+
   const { user, signIn, signUp } = useAuth();
   const navigate = useNavigate();
   const { toast } = useToast();
@@ -32,15 +39,21 @@ const Auth = () => {
 
   const validateForm = () => {
     try {
-      authSchema.parse({ email, password });
+      if (isLogin) {
+        authSchema.parse({ email, password });
+      } else {
+        registerSchema.parse({ email, password, username });
+      }
       setErrors({});
       return true;
     } catch (error) {
       if (error instanceof z.ZodError) {
-        const fieldErrors: { email?: string; password?: string } = {};
+        const fieldErrors: { email?: string; password?: string; username?: string } = {};
         error.errors.forEach((err) => {
-          if (err.path[0] === 'email') fieldErrors.email = err.message;
-          if (err.path[0] === 'password') fieldErrors.password = err.message;
+          const path = err.path[0] as string;
+          if (path === 'email') fieldErrors.email = err.message;
+          if (path === 'password') fieldErrors.password = err.message;
+          if (path === 'username') fieldErrors.username = err.message;
         });
         setErrors(fieldErrors);
       }
@@ -50,7 +63,7 @@ const Auth = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (!validateForm()) return;
 
     setLoading(true);
@@ -59,7 +72,7 @@ const Auth = () => {
       if (isLogin) {
         const { error } = await signIn(email, password);
         if (error) {
-          if (error.message.includes('Invalid login credentials')) {
+          if (error.message.includes('Incorrect email or password')) {
             throw new Error('邮箱或密码错误');
           }
           throw error;
@@ -69,16 +82,19 @@ const Auth = () => {
           description: '欢迎回来！',
         });
       } else {
-        const { error } = await signUp(email, password);
+        const { error } = await signUp(email, password, username);
         if (error) {
-          if (error.message.includes('User already registered')) {
+          if (error.message.includes('Email already registered')) {
             throw new Error('该邮箱已被注册');
+          }
+          if (error.message.includes('Username already taken')) {
+            throw new Error('用户名已被占用');
           }
           throw error;
         }
         toast({
           title: '注册成功',
-          description: '您已获得10积分，开始使用吧！',
+          description: `欢迎 ${username}！您已获得100积分，开始使用吧！`,
         });
       }
     } catch (error) {
@@ -97,7 +113,7 @@ const Auth = () => {
       {/* Header */}
       <header className="border-b border-border/50 bg-background/80 backdrop-blur-sm">
         <div className="container max-w-5xl mx-auto px-4 py-4 flex items-center justify-between">
-          <button 
+          <button
             onClick={() => navigate('/')}
             className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors"
           >
@@ -123,11 +139,34 @@ const Auth = () => {
                 {isLogin ? '欢迎回来' : '创建账户'}
               </h1>
               <p className="text-muted-foreground text-sm">
-                {isLogin ? '登录后继续使用白底图生成服务' : '注册后立即获得10积分'}
+                {isLogin ? '登录后继续使用白底图生成服务' : '注册后立即获得100积分'}
               </p>
             </div>
 
             <form onSubmit={handleSubmit} className="space-y-5">
+              {!isLogin && (
+                <div className="space-y-2">
+                  <Label htmlFor="username" className="text-sm font-medium">
+                    用户名
+                  </Label>
+                  <div className="relative">
+                    <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                    <Input
+                      id="username"
+                      type="text"
+                      placeholder="设置您的用户名"
+                      value={username}
+                      onChange={(e) => setUsername(e.target.value)}
+                      className="pl-10"
+                      disabled={loading}
+                    />
+                  </div>
+                  {errors.username && (
+                    <p className="text-sm text-destructive">{errors.username}</p>
+                  )}
+                </div>
+              )}
+
               <div className="space-y-2">
                 <Label htmlFor="email" className="text-sm font-medium">
                   邮箱地址
@@ -185,6 +224,7 @@ const Auth = () => {
                 onClick={() => {
                   setIsLogin(!isLogin);
                   setErrors({});
+                  setUsername('');
                 }}
                 className="text-sm text-muted-foreground hover:text-foreground transition-colors"
               >

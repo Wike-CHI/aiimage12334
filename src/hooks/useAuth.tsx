@@ -4,6 +4,9 @@ import { authAPI } from '@/integrations/api/client';
 interface User {
   id: number;
   email: string;
+  username: string;
+  user_code: string | null;
+  theme: string;
   credits: number;
   created_at: string;
 }
@@ -12,9 +15,10 @@ interface AuthContextType {
   user: User | null;
   loading: boolean;
   signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
-  signUp: (email: string, password: string) => Promise<{ error: Error | null }>;
+  signUp: (email: string, password: string, username: string) => Promise<{ error: Error | null }>;
   signOut: () => void;
   refreshProfile: () => Promise<void>;
+  updateProfile: (data: { username?: string; theme?: string }) => Promise<{ error: Error | null }>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -60,9 +64,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const signUp = async (email: string, password: string) => {
+  const signUp = async (email: string, password: string, username: string) => {
     try {
-      const response = await authAPI.register(email, password);
+      const response = await authAPI.register(email, password, username);
       const { access_token } = response.data;
       localStorage.setItem('token', access_token);
       await fetchProfile();
@@ -70,6 +74,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch (error) {
       const axiosError = error as { response?: { data?: { detail?: string } } };
       return { error: new Error(axiosError.response?.data?.detail || 'Registration failed') };
+    }
+  };
+
+  const updateProfile = async (data: { username?: string; theme?: string }) => {
+    try {
+      const response = await authAPI.updateProfile(data);
+      setUser(response.data);
+      return { error: null };
+    } catch (error) {
+      const axiosError = error as { response?: { data?: { detail?: string } } };
+      return { error: new Error(axiosError.response?.data?.detail || 'Update failed') };
     }
   };
 
@@ -87,6 +102,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         signUp,
         signOut,
         refreshProfile,
+        updateProfile,
       }}
     >
       {children}

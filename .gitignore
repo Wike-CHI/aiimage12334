@@ -22,3 +22,33 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+#虚拟环境
+venv/
+.venv/
+
+# Python缓存
+__pycache__/
+*.pyc
+
+# tauri
+target/
+target-*
+tauri-build.log
+
+# 其他
+.idea/
+.vscode/
+.vscode-server/
+.vscode-server/bin/
+.vscode-server/bin/host.exe
+.vscode-server/bin/host.exe.old
+.vscode-server/bin/host.exe.old.old
+.vscode-server/bin/host.exe.old.old.old
+.vscode-server/bin/host.exe.old.old.old.old
+.vscode-server/bin/host.exe.old.old.old.old.old
+.vscode-server/bin/host.exe.old.old.old.old.old.old
+.vscode-server/bin/host.exe.old.old.old.old.old.old.old
+.vscode-server/bin/host.exe.old.old.old.old.old.old.old.old
+.vscode-server/bin/host.exe.old.old.old.old.old.old.old.old.old
+.vscode-server/

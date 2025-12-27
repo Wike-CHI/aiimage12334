@@ -1,4 +1,0 @@
-project_id = "afoezctbvmgkaunxbxil"
-
-[functions.generate-white-bg]
-verify_jwt = false

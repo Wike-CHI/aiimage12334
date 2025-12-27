@@ -8,6 +8,7 @@ from app.models import TaskStatus
 class UserCreate(BaseModel):
     email: EmailStr
     password: str
+    username: str
 
 
 class UserLogin(BaseModel):
@@ -18,11 +19,19 @@ class UserLogin(BaseModel):
 class UserResponse(BaseModel):
     id: int
     email: str
+    username: str
+    user_code: Optional[str] = None
+    theme: str
     credits: int
     created_at: datetime
 
     class Config:
         from_attributes = True
+
+
+class UserUpdate(BaseModel):
+    username: Optional[str] = None
+    theme: Optional[str] = None  # light/dark/auto
 
 
 class Token(BaseModel):

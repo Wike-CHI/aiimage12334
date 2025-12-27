@@ -33,8 +33,8 @@ api.interceptors.response.use(
 
 // Auth API
 export const authAPI = {
-  register: (email: string, password: string) =>
-    api.post('/api/auth/register', { email, password }),
+  register: (email: string, password: string, username: string) =>
+    api.post('/api/auth/register', { email, password, username }),
 
   login: (email: string, password: string) =>
     api.post('/api/auth/login', new URLSearchParams({
@@ -45,6 +45,9 @@ export const authAPI = {
     }),
 
   me: () => api.get('/api/auth/me'),
+
+  updateProfile: (data: { username?: string; theme?: string }) =>
+    api.put('/api/auth/me', data),
 };
 
 // Generation API
