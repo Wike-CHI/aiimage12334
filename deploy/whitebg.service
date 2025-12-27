@@ -1,0 +1,21 @@
+[Unit]
+Description=白底图生成器后端服务
+Documentation=https://github.com/your-repo/aiimage12334
+After=network.target mysql.service
+
+[Service]
+Type=simple
+User=www
+Group=www
+WorkingDirectory=/www/wwwroot/生图网站/aiimage12334/backend
+Environment="PATH=/www/wwwroot/生图网站/aiimage12334/.venv312/bin"
+ExecStart=/www/wwwroot/生图网站/aiimage12334/.venv312/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 8001
+ExecReload=/bin/kill -HUP $MAINPID
+KillMode=mixed
+TimeoutStopSec=5
+PrivateTmp=true
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

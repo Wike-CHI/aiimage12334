@@ -4,11 +4,17 @@ import os
 
 
 class Settings(BaseSettings):
+    # API 服务配置
+    API_HOST: str = "0.0.0.0"
+    API_PORT: int = 8001
+    DEBUG: bool = False
+    LOG_LEVEL: str = "INFO"
+
     # Database
     DB_HOST: str = "localhost"
     DB_PORT: int = 3306
     DB_USER: str = "root"
-    DB_PASSWORD: str = "password"
+    DB_PASSWORD: str = "123456"
     DB_NAME: str = "white_bg_generator"
 
     # JWT
@@ -26,6 +32,10 @@ class Settings(BaseSettings):
     BACKEND_HOST: str = "localhost"
     BACKEND_PORT: int = 8001
 
+    # 文件存储配置
+    UPLOAD_DIR: str = "uploads"
+    RESULTS_DIR: str = "results"
+
     # 图片生成配置
     # 支持的宽高比
     SUPPORTED_ASPECT_RATIOS: list = ["1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9"]
@@ -42,6 +52,8 @@ class Settings(BaseSettings):
         env_file = os.environ.get("APP_ENV_FILE", os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env"))
         env_file_encoding = "utf-8"
         case_sensitive = True
+        # 忽略 .env 文件中的额外变量（允许 DATABASE_URL 这样的 property 存在）
+        extra = 'ignore'
 
     @property
     def DATABASE_URL(self) -> str:
