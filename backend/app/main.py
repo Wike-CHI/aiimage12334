@@ -21,11 +21,11 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         settings.FRONTEND_URL,  # 从环境变量读取
-        "http://localhost:8080",  # Tauri 开发
+        "http://localhost:34345",  # Tauri 开发
         "http://localhost:5173",  # Vite dev server
-        "http://127.0.0.1:8080",
+        "http://127.0.0.1:34345",
         "http://127.0.0.1:5173",
-        "http://129.211.218.135:8080",  # Tauri 公网
+        "http://129.211.218.135:34345",  # Tauri 公网
         "http://129.211.218.135",  # 公网访问
         "*",  # 生产环境允许所有（可根据需要调整）
     ],

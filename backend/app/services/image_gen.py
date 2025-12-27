@@ -1,7 +1,6 @@
 import base64
 from app.config import get_settings
 from google import genai
-from google.genai import types
 
 settings = get_settings()
 
@@ -19,15 +18,6 @@ def remove_background_with_gemini(image_path: str, output_path: str, width: int,
         api_key=settings.GEMINI_API_KEY,
         http_options={"base_url": "https://aihubmix.com/gemini"},
     )
-
-    # 根据分辨率设置 image_size (根据最大边计算)
-    max_pixels = max(width, height)
-    if max_pixels <= 1024:
-        image_size = "1K"
-    elif max_pixels <= 2048:
-        image_size = "2K"
-    else:
-        image_size = "4K"
 
     # 精细化提示词
     prompt = """**第一阶段: 产品DNA精确提取**
@@ -73,17 +63,10 @@ def remove_background_with_gemini(image_path: str, output_path: str, width: int,
 
 只输出处理后的图片，不要任何文字说明。"""
 
-    # 调用 API
+    # 调用 API（简化版，去掉不支持的参数）
     response = client.models.generate_content(
         model="gemini-3-pro-image-preview",
         contents=[prompt, {"inline_data": {"mime_type": "image/jpeg", "data": image_data}}],
-        config=types.GenerateContentConfig(
-            response_modalities=["IMAGE"],
-            image_config=types.ImageConfig(
-                aspect_ratio=aspect_ratio,
-                image_size=image_size,
-            ),
-        ),
     )
 
     # 保存生成的图片

@@ -8,6 +8,8 @@ services:
     container_name: white-bg-backend
     ports:
       - "8000:8000"
+    env_file:
+      - .env
     environment:
       - DATABASE_URL=mysql+pymysql://root:123456@127.0.0.1:3306/white_bg_generator
       - SECRET_KEY=${SECRET_KEY:-your-secret-key-change-in-production}
@@ -20,6 +22,7 @@ services:
       - DB_PASSWORD=123456
       - DB_NAME=white_bg_generator
       - FRONTEND_URL=http://129.211.218.135:8080
+      - APP_ENV_FILE=.env
     volumes:
       - ../../backend/uploads:/app/uploads
       - ../../backend/results:/app/results
