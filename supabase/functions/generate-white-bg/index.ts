@@ -40,6 +40,54 @@ serve(async (req) => {
 
     console.log("User authenticated:", user.id);
 
+    const { imageBase64, resolution = "original", ratio = "original" } = await req.json();
+    
+    if (!imageBase64) {
+      throw new Error("No image provided");
+    }
+
+    // Create task record
+    const { data: taskData, error: taskError } = await supabase
+      .from("generation_tasks")
+      .insert({
+        user_id: user.id,
+        status: "processing",
+        resolution,
+        ratio,
+      })
+      .select()
+      .single();
+
+    if (taskError) {
+      console.error("Error creating task:", taskError);
+      throw new Error("创建任务失败");
+    }
+
+    const taskId = taskData.id;
+    console.log("Task created:", taskId);
+
+    // Upload original image to storage
+    const originalImageData = imageBase64.replace(/^data:image\/\w+;base64,/, "");
+    const originalImageBuffer = Uint8Array.from(atob(originalImageData), c => c.charCodeAt(0));
+    const originalFileName = `${user.id}/${taskId}_original.png`;
+
+    const { error: uploadError } = await supabase.storage
+      .from("images")
+      .upload(originalFileName, originalImageBuffer, {
+        contentType: "image/png",
+        upsert: true,
+      });
+
+    if (uploadError) {
+      console.error("Error uploading original image:", uploadError);
+    } else {
+      const { data: urlData } = supabase.storage.from("images").getPublicUrl(originalFileName);
+      await supabase
+        .from("generation_tasks")
+        .update({ original_image_url: urlData.publicUrl })
+        .eq("id", taskId);
+    }
+
     // Check and deduct credits
     const { data: deductResult, error: deductError } = await supabase.rpc('deduct_credit', {
       p_user_id: user.id
@@ -47,6 +95,10 @@ serve(async (req) => {
 
     if (deductError) {
       console.error("Error deducting credits:", deductError);
+      await supabase
+        .from("generation_tasks")
+        .update({ status: "failed", error_message: "积分扣除失败" })
+        .eq("id", taskId);
       return new Response(
         JSON.stringify({ error: "积分扣除失败，请稍后重试" }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -55,6 +107,10 @@ serve(async (req) => {
 
     if (!deductResult) {
       console.log("Insufficient credits for user:", user.id);
+      await supabase
+        .from("generation_tasks")
+        .update({ status: "failed", error_message: "积分不足" })
+        .eq("id", taskId);
       return new Response(
         JSON.stringify({ error: "积分不足，请充值后继续使用" }),
         { status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -62,12 +118,6 @@ serve(async (req) => {
     }
 
     console.log("Credit deducted successfully for user:", user.id);
-
-    const { imageBase64, resolution = "original", ratio = "original" } = await req.json();
-    
-    if (!imageBase64) {
-      throw new Error("No image provided");
-    }
 
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) {
@@ -157,20 +207,22 @@ OUTPUT SPECIFICATIONS:${sizeInstructions || "\n- Maintain original resolution"}
       const errorText = await response.text();
       console.error("AI gateway error:", response.status, errorText);
       
+      let errorMessage = "处理失败";
       if (response.status === 429) {
-        return new Response(
-          JSON.stringify({ error: "请求过于频繁，请稍后重试" }),
-          { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
+        errorMessage = "请求过于频繁";
+      } else if (response.status === 402) {
+        errorMessage = "服务额度已用完";
       }
-      if (response.status === 402) {
-        return new Response(
-          JSON.stringify({ error: "服务额度已用完，请联系管理员" }),
-          { status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
-      
-      throw new Error(`AI gateway error: ${response.status}`);
+
+      await supabase
+        .from("generation_tasks")
+        .update({ status: "failed", error_message: errorMessage })
+        .eq("id", taskId);
+
+      return new Response(
+        JSON.stringify({ error: errorMessage }),
+        { status: response.status, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
     }
 
     const data = await response.json();
@@ -180,15 +232,47 @@ OUTPUT SPECIFICATIONS:${sizeInstructions || "\n- Maintain original resolution"}
     
     if (!generatedImage) {
       console.error("No image in response:", JSON.stringify(data));
+      await supabase
+        .from("generation_tasks")
+        .update({ status: "failed", error_message: "未能生成图片" })
+        .eq("id", taskId);
       throw new Error("No image generated in response");
     }
+
+    // Upload processed image to storage
+    const processedImageData = generatedImage.replace(/^data:image\/\w+;base64,/, "");
+    const processedImageBuffer = Uint8Array.from(atob(processedImageData), c => c.charCodeAt(0));
+    const processedFileName = `${user.id}/${taskId}_processed.png`;
+
+    const { error: processedUploadError } = await supabase.storage
+      .from("images")
+      .upload(processedFileName, processedImageBuffer, {
+        contentType: "image/png",
+        upsert: true,
+      });
+
+    let processedImageUrl = generatedImage;
+    if (!processedUploadError) {
+      const { data: urlData } = supabase.storage.from("images").getPublicUrl(processedFileName);
+      processedImageUrl = urlData.publicUrl;
+    }
+
+    // Update task as completed
+    await supabase
+      .from("generation_tasks")
+      .update({ 
+        status: "completed", 
+        processed_image_url: processedImageUrl 
+      })
+      .eq("id", taskId);
 
     console.log("Successfully generated white background image for user:", user.id);
 
     return new Response(
       JSON.stringify({ 
         success: true,
-        image: generatedImage 
+        image: generatedImage,
+        taskId
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
