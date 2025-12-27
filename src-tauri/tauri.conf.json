@@ -30,8 +30,7 @@
     "active": true,
     "targets": "all",
     "windows": {
-      "nsis": true,
-      "wix": null
+      "nsis": {}
     },
     "icon": [
       "icons/32x32.png",
