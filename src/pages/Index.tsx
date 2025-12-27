@@ -12,13 +12,15 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { useTaskHistory } from "@/hooks/useTaskHistory";
-import { supabase } from "@/integrations/supabase/client";
+import { useUploadImageCache } from "@/hooks/useImageCache";
+import { useTaskImageCache } from "@/hooks/useImageCache";
+import { generationAPI } from "@/integrations/api/client";
 
 const RESOLUTIONS = [
-  { value: "original", label: "原始尺寸" },
-  { value: "1024x1024", label: "1024 × 1024" },
-  { value: "1280x1280", label: "1280 × 1280" },
-  { value: "2048x2048", label: "2048 × 2048" },
+  { value: 0, label: "原始尺寸" },
+  { value: 1024, label: "1024px" },
+  { value: 1280, label: "1280px" },
+  { value: 2048, label: "2048px" },
 ];
 
 const RATIOS = [
@@ -32,19 +34,25 @@ const RATIOS = [
 
 const Index = () => {
   const [originalImage, setOriginalImage] = useState<string | null>(null);
+  const [originalCacheKey, setOriginalCacheKey] = useState<string | null>(null);
   const [processedImage, setProcessedImage] = useState<string | null>(null);
+  const [processedCacheKey, setProcessedCacheKey] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [resolution, setResolution] = useState("original");
+  const [resolution, setResolution] = useState<number>(0);
   const [ratio, setRatio] = useState("original");
   const [activeTab, setActiveTab] = useState("generate");
   const { toast } = useToast();
-  const { user, profile, refreshProfile } = useAuth();
+  const { user, refreshProfile } = useAuth();
   const { tasks, refetch: refetchTasks } = useTaskHistory();
+  const { getCachedImage } = useUploadImageCache();
+  const { cacheTaskImage } = useTaskImageCache();
   const navigate = useNavigate();
 
-  const handleImageSelect = useCallback((imageBase64: string) => {
+  const handleImageSelect = useCallback(async (imageBase64: string, cacheKey?: string) => {
     setOriginalImage(imageBase64);
+    setOriginalCacheKey(cacheKey || null);
     setProcessedImage(null);
+    setProcessedCacheKey(null);
   }, []);
 
   const handleGenerate = useCallback(async () => {
@@ -60,7 +68,7 @@ const Index = () => {
       return;
     }
 
-    if (!profile || profile.credits < 1) {
+    if (!user || user.credits < 1) {
       toast({
         title: "积分不足",
         description: "您的积分已用完，请充值后继续使用",
@@ -73,30 +81,34 @@ const Index = () => {
     setProcessedImage(null);
 
     try {
-      const { data, error } = await supabase.functions.invoke("generate-white-bg", {
-        body: { imageBase64: originalImage, resolution, ratio },
-      });
+      // 将 base64 转换为 File
+      const response = await fetch(originalImage);
+      const blob = await response.blob();
+      const file = new File([blob], "image.png", { type: "image/png" });
 
-      if (error) {
-        throw new Error(error.message || "处理失败");
-      }
+      // 解析分辨率 (0=原始尺寸)
+      const size = resolution || 1024;
+      const result = await generationAPI.generate(file, size, size, ratio);
 
-      if (data.error) {
-        throw new Error(data.error);
-      }
+      if (result.data && result.data.result_image_url) {
+        setProcessedImage(result.data.result_image_url);
 
-      if (data.image) {
-        setProcessedImage(data.image);
+        // Cache the processed image
+        const taskId = result.data.id || Date.now();
+        const newCacheKey = `task:${taskId}`;
+        await cacheTaskImage(taskId, blob, size, size);
+        setProcessedCacheKey(newCacheKey);
+
         // Refresh profile to update credits display
         await refreshProfile();
         // Refresh tasks to show new history
         refetchTasks();
         toast({
           title: "生成成功",
-          description: `白底图已生成，剩余积分: ${(profile?.credits ?? 1) - 1}`,
+          description: `白底图已生成，剩余积分: ${(user?.credits ?? 1) - 1}`,
         });
       } else {
-        throw new Error("未能生成图片");
+        throw new Error(result.data?.error || "未能生成图片");
       }
     } catch (error) {
       console.error("Error generating white background:", error);
@@ -108,38 +120,69 @@ const Index = () => {
     } finally {
       setIsProcessing(false);
     }
-  }, [originalImage, toast, user, profile, refreshProfile, navigate, resolution, ratio, refetchTasks]);
+  }, [originalImage, toast, user, refreshProfile, navigate, resolution, ratio, refetchTasks, cacheTaskImage]);
 
   const handleClear = useCallback(() => {
     setOriginalImage(null);
+    setOriginalCacheKey(null);
     setProcessedImage(null);
+    setProcessedCacheKey(null);
   }, []);
 
-  const handleDownload = useCallback(() => {
+  const handleDownload = useCallback(async () => {
     if (!processedImage) return;
 
-    const link = document.createElement("a");
-    link.href = processedImage;
-    link.download = `white-bg-${Date.now()}.png`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    try {
+      // Fetch image as blob to handle cross-origin URLs
+      const response = await fetch(processedImage);
+      const blob = await response.blob();
+      const blobUrl = URL.createObjectURL(blob);
 
-    toast({
-      title: "下载成功",
-      description: "图片已保存到本地",
-    });
+      const link = document.createElement("a");
+      link.href = blobUrl;
+      link.download = `white-bg-${Date.now()}.png`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(blobUrl);
+
+      toast({
+        title: "下载成功",
+        description: "图片已保存到本地",
+      });
+    } catch (error) {
+      console.error("Download error:", error);
+      // Fallback: open in new tab
+      window.open(processedImage, '_blank');
+      toast({
+        title: "下载失败",
+        description: "已在新窗口打开图片，请右键另存为",
+        variant: "destructive",
+      });
+    }
   }, [processedImage, toast]);
 
-  const handleSelectTask = useCallback((task: { processed_image_url: string | null; original_image_url: string | null }) => {
+  const handleSelectTask = useCallback(async (task: { id: number; processed_image_url: string | null; original_image_url: string | null }) => {
+    const cacheKey = `task:${task.id}`;
+
+    // Try to load from cache first
+    const cachedImage = await getCachedImage(cacheKey);
+
+    if (cachedImage) {
+      setProcessedImage(cachedImage);
+      setProcessedCacheKey(cacheKey);
+    } else if (task.processed_image_url) {
+      setProcessedImage(task.processed_image_url);
+      setProcessedCacheKey(null);
+    }
+
     if (task.original_image_url) {
       setOriginalImage(task.original_image_url);
+      setOriginalCacheKey(null);
     }
-    if (task.processed_image_url) {
-      setProcessedImage(task.processed_image_url);
-    }
+
     setActiveTab("generate");
-  }, []);
+  }, [getCachedImage]);
 
   return (
     <div className="min-h-screen gradient-subtle">
@@ -166,9 +209,9 @@ const Index = () => {
           <p className="text-muted-foreground text-base md:text-lg max-w-xl mx-auto">
             上传任意图片，AI 智能识别主体，自动生成纯白背景图片
           </p>
-          {user && profile && (
+          {user && (
             <p className="mt-3 text-sm text-muted-foreground">
-              当前积分: <span className="font-semibold text-amber-500">{profile.credits}</span>（每次生成消耗1积分）
+              当前积分: <span className="font-semibold text-amber-500">{user.credits}</span>（每次生成消耗1积分）
             </p>
           )}
         </div>

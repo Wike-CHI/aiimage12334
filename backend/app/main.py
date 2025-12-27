@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from app.routes import auth, generation
 from app.database import engine, Base
 from app.config import get_settings
@@ -15,10 +16,15 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# CORS 配置
+# CORS 配置 - 支持 Tauri (8080) 和 Vite (5173) 开发服务器
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[settings.FRONTEND_URL],
+    allow_origins=[
+        settings.FRONTEND_URL,  # http://localhost:8080
+        "http://localhost:5173",  # Vite dev server
+        "http://127.0.0.1:8080",
+        "http://127.0.0.1:5173",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -27,6 +33,10 @@ app.add_middleware(
 # 路由
 app.include_router(auth.router)
 app.include_router(generation.router)
+
+# 静态文件服务 - 上传的图片和生成结果
+app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
+app.mount("/results", StaticFiles(directory="results"), name="results")
 
 
 @app.get("/")

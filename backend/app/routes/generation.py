@@ -1,9 +1,11 @@
 import os
 import uuid
+import asyncio
 import aiofiles
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, status
 from sqlalchemy.orm import Session
 from typing import Optional
+from concurrent.futures import ThreadPoolExecutor
 from app.database import get_db
 from app.models import User, GenerationTask, TaskStatus
 from app.schemas import GenerationTaskResponse, TaskHistoryResponse, CreditResponse
@@ -11,6 +13,7 @@ from app.auth import get_current_user
 from app.services.image_gen import remove_background_with_gemini
 
 router = APIRouter(prefix="/api", tags=["generation"])
+executor = ThreadPoolExecutor()
 
 # 配置上传目录
 UPLOAD_DIR = "uploads"
@@ -24,6 +27,7 @@ async def generate_white_bg(
     file: UploadFile = File(...),
     width: int = 1024,
     height: int = 1024,
+    ratio: str = "1:1",
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -62,8 +66,9 @@ async def generate_white_bg(
     db.refresh(task)
 
     try:
-        # 调用 AI 生成白底图
-        await remove_background_with_gemini(original_path, result_path, width, height)
+        # 调用 AI 生成白底图（使用线程池执行同步函数）
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(executor, remove_background_with_gemini, original_path, result_path, width, height, ratio)
 
         # 更新任务状态
         task.status = TaskStatus.COMPLETED

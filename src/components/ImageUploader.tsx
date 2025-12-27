@@ -1,27 +1,32 @@
 import { useState, useCallback } from "react";
 import { Upload, Image as ImageIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useUploadImageCache } from "@/hooks/useImageCache";
 
 interface ImageUploaderProps {
-  onImageSelect: (imageBase64: string) => void;
+  onImageSelect: (imageBase64: string, cacheKey?: string) => void;
   disabled?: boolean;
 }
 
 export function ImageUploader({ onImageSelect, disabled }: ImageUploaderProps) {
   const [isDragging, setIsDragging] = useState(false);
+  const { cacheUpload } = useUploadImageCache();
 
-  const handleFile = useCallback((file: File) => {
+  const handleFile = useCallback(async (file: File) => {
     if (!file.type.startsWith("image/")) {
       return;
     }
 
+    // Cache the file first
+    const cacheKey = await cacheUpload(file);
+
     const reader = new FileReader();
     reader.onload = (e) => {
       const result = e.target?.result as string;
-      onImageSelect(result);
+      onImageSelect(result, cacheKey);
     };
     reader.readAsDataURL(file);
-  }, [onImageSelect]);
+  }, [onImageSelect, cacheUpload]);
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();

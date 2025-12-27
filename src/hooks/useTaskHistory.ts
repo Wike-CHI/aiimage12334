@@ -1,15 +1,16 @@
-import { useState, useEffect, useCallback } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { useState, useEffect, useCallback, useRef } from "react";
+import { generationAPI } from "@/integrations/api/client";
 import { useAuth } from "./useAuth";
 
 interface Task {
-  id: string;
+  id: number;
+  user_id: number;
   original_image_url: string | null;
-  processed_image_url: string | null;
+  result_image_url: string | null;
   status: string;
-  resolution: string;
-  ratio: string;
-  error_message: string | null;
+  credits_used: number;
+  width: number;
+  height: number;
   created_at: string;
 }
 
@@ -17,6 +18,7 @@ export function useTaskHistory() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const { user } = useAuth();
+  const intervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const fetchTasks = useCallback(async () => {
     if (!user) {
@@ -24,16 +26,9 @@ export function useTaskHistory() {
       return;
     }
 
-    setIsLoading(true);
     try {
-      const { data, error } = await supabase
-        .from("generation_tasks")
-        .select("*")
-        .order("created_at", { ascending: false })
-        .limit(50);
-
-      if (error) throw error;
-      setTasks(data || []);
+      const response = await generationAPI.getTasks(0, 50);
+      setTasks(response.data.tasks || []);
     } catch (error) {
       console.error("Error fetching tasks:", error);
     } finally {
@@ -42,31 +37,29 @@ export function useTaskHistory() {
   }, [user]);
 
   useEffect(() => {
+    if (!user) {
+      setTasks([]);
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
+      return;
+    }
+
+    // Initial fetch
+    setIsLoading(true);
     fetchTasks();
-  }, [fetchTasks]);
 
-  // Subscribe to realtime updates
-  useEffect(() => {
-    if (!user) return;
-
-    const channel = supabase
-      .channel("generation_tasks_changes")
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "generation_tasks",
-          filter: `user_id=eq.${user.id}`,
-        },
-        () => {
-          fetchTasks();
-        }
-      )
-      .subscribe();
+    // Poll every 2 seconds to get updated status
+    intervalRef.current = setInterval(() => {
+      fetchTasks();
+    }, 2000);
 
     return () => {
-      supabase.removeChannel(channel);
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
     };
   }, [user, fetchTasks]);
 

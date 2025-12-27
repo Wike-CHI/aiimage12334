@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Download, RefreshCw, X, ZoomIn } from "lucide-react";
+import { Download, RefreshCw, X, ZoomIn, ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
@@ -12,14 +12,15 @@ interface ImagePreviewProps {
   onDownload: () => void;
 }
 
-export function ImagePreview({ 
-  originalImage, 
-  processedImage, 
-  isProcessing, 
+export function ImagePreview({
+  originalImage,
+  processedImage,
+  isProcessing,
   onClear,
-  onDownload 
+  onDownload
 }: ImagePreviewProps) {
   const [previewImage, setPreviewImage] = useState<{ src: string; title: string } | null>(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
 
   return (
     <>
@@ -116,15 +117,27 @@ export function ImagePreview({
       </div>
 
       {/* Lightbox Preview Dialog */}
-      <Dialog open={!!previewImage} onOpenChange={() => setPreviewImage(null)}>
+      <Dialog open={!!previewImage} onOpenChange={() => { setPreviewImage(null); setIsFullscreen(false); }}>
         <DialogContent className="max-w-[90vw] max-h-[90vh] p-0 bg-background/95 backdrop-blur-sm border-border">
           <div className="relative w-full h-full flex flex-col">
             <div className="flex items-center justify-between px-4 py-3 border-b border-border">
-              <h3 className="font-medium text-foreground">{previewImage?.title}</h3>
+              {isFullscreen ? (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setIsFullscreen(false)}
+                  className="h-8 px-2"
+                >
+                  <ArrowLeft className="w-4 h-4 mr-1" />
+                  返回
+                </Button>
+              ) : (
+                <h3 className="font-medium text-foreground">{previewImage?.title}</h3>
+              )}
               <Button
                 variant="ghost"
                 size="icon"
-                onClick={() => setPreviewImage(null)}
+                onClick={() => { setPreviewImage(null); setIsFullscreen(false); }}
                 className="h-8 w-8"
               >
                 <X className="w-4 h-4" />
@@ -139,6 +152,20 @@ export function ImagePreview({
                 />
               )}
             </div>
+            {/* Download button in preview */}
+            {previewImage && previewImage.title === "白底图" && (
+              <div className="flex justify-center pb-4">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={onDownload}
+                  className="gap-2"
+                >
+                  <Download className="w-4 h-4" />
+                  下载图片
+                </Button>
+              </div>
+            )}
           </div>
         </DialogContent>
       </Dialog>

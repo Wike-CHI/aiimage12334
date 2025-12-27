@@ -52,11 +52,12 @@ export const authAPI = {
 
 // Generation API
 export const generationAPI = {
-  generate: (file: File, width: number = 1024, height: number = 1024) => {
+  generate: (file: File, width: number = 1024, height: number = 1024, ratio: string = "1:1") => {
     const formData = new FormData();
     formData.append('file', file);
     formData.append('width', width.toString());
     formData.append('height', height.toString());
+    formData.append('ratio', ratio);
     return api.post('/api/generate', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
     });

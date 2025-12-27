@@ -1,70 +1,102 @@
 import base64
-import httpx
-import json
 from app.config import get_settings
+from google import genai
+from google.genai import types
 
 settings = get_settings()
 
 
-async def remove_background_with_gemini(image_path: str, output_path: str, width: int, height: int) -> str:
+def remove_background_with_gemini(image_path: str, output_path: str, width: int, height: int, aspect_ratio: str = "1:1") -> str:
     """
-    使用 Gemini API 去除图片背景
+    使用 AIHubMix Gemini API 去除图片背景并生成白底图
     """
-    # 读取图片并进行 base64 编码
+    # 读取图片
     with open(image_path, "rb") as image_file:
         image_data = base64.b64encode(image_file.read()).decode("utf-8")
 
-    # Gemini API 请求
-    api_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={settings.GEMINI_API_KEY}"
+    # 创建 Gemini 客户端（使用 AIHubMix）
+    client = genai.Client(
+        api_key=settings.GEMINI_API_KEY,
+        http_options={"base_url": "https://aihubmix.com/gemini"},
+    )
 
-    prompt = f"""请帮我处理这张图片，做成白底商品图。要求：
-1. 去除图片背景
-2. 将背景设置为纯白色 (#FFFFFF)
-3. 保持商品主体的完整性和清晰度
-4. 图片尺寸调整为 {width} x {height} 像素
-5. 直接返回处理后的图片，不需要解释
+    # 根据分辨率设置 image_size (根据最大边计算)
+    max_pixels = max(width, height)
+    if max_pixels <= 1024:
+        image_size = "1K"
+    elif max_pixels <= 2048:
+        image_size = "2K"
+    else:
+        image_size = "4K"
 
-请以 base64 格式返回处理后的图片，只返回图片数据，不需要任何文字说明。"""
+    # 精细化提示词
+    prompt = """**第一阶段: 产品DNA精确提取**
 
-    payload = {
-        "contents": [
-            {
-                "parts": [
-                    {"text": prompt},
-                    {
-                        "inline_data": {
-                            "mime_type": "image/jpeg",
-                            "data": image_data
-                        }
-                    }
-                ]
-            }
-        ],
-        "generationConfig": {
-            "responseMimeType": "application/json"
-        }
-    }
+分析输入图像中服装类目，提取并锁定以下核心细节：
+- 面料材质、编织纹理、图案细节
+- 精确颜色（潘通色值）
+- 品牌logo或文字设计（位置、字体、大小完全一致）
+- 服装各部位几何形状、尺寸比例
 
-    async with httpx.AsyncClient() as client:
-        response = await client.post(api_url, json=payload, timeout=120.0)
-        response.raise_for_status()
+**第二阶段: 几何形态标准化重建**
 
-        result = response.json()
-        # 解析 Gemini 返回的 base64 图片
-        generated_content = result["candidates"][0]["content"]["parts"][0]["text"]
+视角要求：
+- 正向对准产品中心的垂直视角
+- 电商标准展示图，不改变整体比例
 
-        # 去除可能的 markdown 格式
-        if "```json" in generated_content:
-            generated_content = generated_content.split("```json")[1].split("```")[0]
-        elif "```" in generated_content:
-            generated_content = generated_content.split("```")[1].split("```")[0]
+褶皱处理：
+- 消除拍摄导致的真实不规则褶皱
+- 重建为电商展示标准的平整形态
+- 严格保留面料的自然纹理
 
-        image_data = json.loads(generated_content).get("image", {}).get("data")
+结构约束：
+- 服装关键结构点（纽扣位置、缝线走向、口袋形状）与原图完全一致
+- 版型比例优先于褶皱消除
 
-        if image_data:
-            # 保存处理后的图片
-            with open(output_path, "wb") as f:
-                f.write(base64.b64decode(image_data))
+**第三阶段: 电商化渲染**
+
+场景净化：
+- 100%纯白背景（RGB 255,255,255），无任何阴影反光
+- 移除所有非产品元素：模特、衣架、支撑物、阴影
+
+理想化渲染：
+- 均匀无影的全局光照，展示产品固有色
+- 基于锁定的产品DNA，渲染清晰平整的理想化面料质感
+
+**输出禁忌**：
+- 禁止改变产品类目、材质、颜色
+- 禁止添加任何装饰元素
+- 禁止添加标签、洗水标、尺码标、吊牌
+- 禁止出现阴影、反光、渐变背景
+- 禁止改变缝合线走向
+- 禁止调整纽扣/口袋/扣眼的数量和位置
+
+只输出处理后的图片，不要任何文字说明。"""
+
+    # 调用 API
+    response = client.models.generate_content(
+        model="gemini-3-pro-image-preview",
+        contents=[prompt, {"inline_data": {"mime_type": "image/jpeg", "data": image_data}}],
+        config=types.GenerateContentConfig(
+            response_modalities=["IMAGE"],
+            image_config=types.ImageConfig(
+                aspect_ratio=aspect_ratio,
+                image_size=image_size,
+            ),
+        ),
+    )
+
+    # 保存生成的图片
+    for part in response.parts:
+        if image := part.as_image():
+            image.save(output_path)
             return output_path
-        else:
-            raise Exception("Failed to generate image")
+
+    raise Exception("Failed to generate image")
+
+
+def remove_background_with_gemini_async(image_path: str, output_path: str, width: int, height: int, aspect_ratio: str = "1:1") -> str:
+    """
+    同步版本的图片处理函数
+    """
+    return remove_background_with_gemini(image_path, output_path, width, height, aspect_ratio)
