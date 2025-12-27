@@ -26,6 +26,16 @@ class Settings(BaseSettings):
     BACKEND_HOST: str = "localhost"
     BACKEND_PORT: int = 8001
 
+    # 图片生成配置
+    # 支持的宽高比
+    SUPPORTED_ASPECT_RATIOS: list = ["1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9"]
+    # 支持的分辨率 (K必须大写)
+    SUPPORTED_RESOLUTIONS: list = ["1K", "2K", "4K"]
+    # 默认宽高比
+    DEFAULT_ASPECT_RATIO: str = "1:1"
+    # 默认分辨率
+    DEFAULT_RESOLUTION: str = "1K"
+
     class Config:
         # 优先从环境变量读取，然后从 backend/.env 读取
         # 使用绝对路径确保无论从哪里运行都能正确读取

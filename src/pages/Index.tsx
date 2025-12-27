@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Sparkles, History, Upload } from "lucide-react";
 import { ImageUploader } from "@/components/ImageUploader";
@@ -14,22 +14,26 @@ import { useAuth } from "@/hooks/useAuth";
 import { useTaskHistory } from "@/hooks/useTaskHistory";
 import { useUploadImageCache } from "@/hooks/useImageCache";
 import { useTaskImageCache } from "@/hooks/useImageCache";
-import { generationAPI } from "@/integrations/api/client";
+import { useImageGenerationV2 } from "@/hooks/useImageGenerationV2";
+import { imageUtils } from "@/integrations/api/client";
+import { GENERATION_CONFIG } from "@/config";
 
-const RESOLUTIONS = [
-  { value: 0, label: "原始尺寸" },
-  { value: 1024, label: "1024px" },
-  { value: 1280, label: "1280px" },
-  { value: 2048, label: "2048px" },
-];
+// 使用后端API返回的配置生成下拉选项
+const RESOLUTIONS = GENERATION_CONFIG.resolutions.map(r => ({
+  value: r.value,
+  label: r.label
+}));
 
-const RATIOS = [
-  { value: "original", label: "原始比例" },
-  { value: "1:1", label: "1:1 正方形" },
-  { value: "3:4", label: "3:4 竖版" },
-  { value: "4:3", label: "4:3 横版" },
-  { value: "9:16", label: "9:16 手机屏" },
-  { value: "16:9", label: "16:9 横屏" },
+const RATIOS = GENERATION_CONFIG.aspectRatios.map(r => ({
+  value: r.value,
+  label: r.label
+}));
+
+const DEFAULT_TEMPLATE_IDS = [
+  'remove_bg',
+  'standardize',
+  'ecommerce',
+  'color_correct'
 ];
 
 const Index = () => {
@@ -37,16 +41,34 @@ const Index = () => {
   const [originalCacheKey, setOriginalCacheKey] = useState<string | null>(null);
   const [processedImage, setProcessedImage] = useState<string | null>(null);
   const [processedCacheKey, setProcessedCacheKey] = useState<string | null>(null);
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [resolution, setResolution] = useState<string>("0");
-  const [ratio, setRatio] = useState("original");
+  // 使用后端配置的默认分辨率和比例
+  const [resolution, setResolution] = useState<string>(GENERATION_CONFIG.defaultResolution);
+  const [ratio, setRatio] = useState<string>(GENERATION_CONFIG.defaultAspectRatio);
   const [activeTab, setActiveTab] = useState("generate");
   const { toast } = useToast();
-  const { user, refreshProfile } = useAuth();
+  const { user } = useAuth();
   const { tasks, refetch: refetchTasks } = useTaskHistory();
   const { getCachedImage } = useUploadImageCache();
   const { cacheTaskImage } = useTaskImageCache();
   const navigate = useNavigate();
+
+  // V2 同步图片生成 Hook
+  const {
+    processImage,
+    isProcessing,
+    elapsedTime,
+    templates,
+    chains,
+    isLoadingTemplates,
+    refreshTemplates,
+  } = useImageGenerationV2({
+    templateIds: DEFAULT_TEMPLATE_IDS,
+  });
+
+  // 加载模板列表
+  useEffect(() => {
+    refreshTemplates();
+  }, [refreshTemplates]);
 
   const handleImageSelect = useCallback(async (imageBase64: string, cacheKey?: string) => {
     setOriginalImage(imageBase64);
@@ -77,8 +99,8 @@ const Index = () => {
       return;
     }
 
-    setIsProcessing(true);
     setProcessedImage(null);
+    setProcessedCacheKey(null);
 
     try {
       // 将 base64 转换为 File
@@ -86,76 +108,58 @@ const Index = () => {
       const blob = await response.blob();
       const file = new File([blob], "image.png", { type: "image/png" });
 
-      // 解析分辨率 (0=原始尺寸)
-      const size = parseInt(resolution, 10) || 1024;
-
-      // 提交任务
-      const submitResult = await generationAPI.generate(file, size, size, ratio);
-
-      if (!submitResult.data || !submitResult.data.db_task_id) {
-        throw new Error("任务提交失败");
-      }
-
-      const taskId = submitResult.data.db_task_id;
-      const maxPollingAttempts = 120; // 最多轮询120次（每次5秒，共10分钟）
-      const pollingInterval = 5000; // 轮询间隔5秒
-
+      // V2 同步处理，直接等待结果
       toast({
-        title: "任务已提交",
+        title: "处理中",
         description: "正在生成白底图，请稍候...",
       });
 
-      // 轮询任务状态
-      let attempt = 0;
-      let taskStatus = null;
-      let taskResult = null;
+      // 传递宽高比和分辨率到后端API
+      const result = await processImage(file, ratio, resolution);
 
-      while (attempt < maxPollingAttempts) {
-        await new Promise(resolve => setTimeout(resolve, pollingInterval));
-        attempt++;
+      if (result.success && result.result_path) {
+        // 获取完整的结果图片 URL
+        const resultUrl = imageUtils.getResultUrl(result.result_path);
+        setProcessedImage(resultUrl);
 
+        // 缓存处理后的图片（使用时间戳作为ID）
+        const cacheId = Date.now();
+        const cacheKey = `v2_${cacheId}`;
+        // 将分辨率转换为像素值用于缓存
+        const resolutionMap: Record<string, number> = {
+          "1K": 1024,
+          "2K": 2048,
+          "4K": 4096
+        };
+        const pixelResolution = resolutionMap[resolution] || 1024;
+        await cacheTaskImage(cacheId, blob, pixelResolution, pixelResolution);
+        setProcessedCacheKey(cacheKey);
+
+        // 刷新任务历史
+        refetchTasks();
+
+        // 自动下载图片到用户电脑
         try {
-          const statusResponse = await generationAPI.getTaskDetail(taskId);
-          taskStatus = statusResponse.data.status;
-          taskResult = statusResponse.data;
+          const downloadResponse = await fetch(resultUrl);
+          const downloadBlob = await downloadResponse.blob();
+          const blobUrl = URL.createObjectURL(downloadBlob);
+          const link = document.createElement("a");
+          link.href = blobUrl;
+          link.download = `white-bg-${result.task_id || Date.now()}.png`;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          URL.revokeObjectURL(blobUrl);
 
-          if (taskStatus === "completed") {
-            // 任务完成
-            if (taskResult.result_image_url) {
-              setProcessedImage(taskResult.result_image_url);
-
-              // Cache the processed image
-              const newCacheKey = `task:${taskId}`;
-              await cacheTaskImage(taskId, blob, size, size);
-              setProcessedCacheKey(newCacheKey);
-
-              // Refresh profile to update credits display
-              await refreshProfile();
-              // Refresh tasks to show new history
-              refetchTasks();
-
-              toast({
-                title: "生成成功",
-                description: `白底图已生成，剩余积分: ${(user?.credits ?? 1) - 1}`,
-              });
-              return; // 成功返回
-            }
-          } else if (taskStatus === "failed") {
-            // 任务失败
-            throw new Error(taskResult.error_message || "任务执行失败");
-          } else if (taskStatus === "processing") {
-            // 继续轮询...
-            continue;
-          }
-        } catch (pollError) {
-          console.error("轮询任务状态失败:", pollError);
-          // 继续尝试轮询
+          toast({
+            title: "生成成功",
+            description: "图片已自动保存到下载文件夹",
+          });
+        } catch (downloadError) {
+          console.error("Auto-download failed:", downloadError);
+          // 下载失败不影响主流程
         }
       }
-
-      // 轮询超时
-      throw new Error("任务处理超时，请稍后查看历史记录");
-
     } catch (error) {
       console.error("Error generating white background:", error);
       toast({
@@ -163,10 +167,8 @@ const Index = () => {
         description: error instanceof Error ? error.message : "请稍后重试",
         variant: "destructive",
       });
-    } finally {
-      setIsProcessing(false);
     }
-  }, [originalImage, toast, user, refreshProfile, navigate, resolution, ratio, refetchTasks, cacheTaskImage]);
+  }, [originalImage, toast, user, navigate, ratio, resolution, processImage, refetchTasks, cacheTaskImage]);
 
   const handleClear = useCallback(() => {
     setOriginalImage(null);
@@ -260,6 +262,12 @@ const Index = () => {
               当前积分: <span className="font-semibold text-amber-500">{user.credits}</span>（每次生成消耗1积分）
             </p>
           )}
+          {/* 显示处理耗时 */}
+          {elapsedTime && (
+            <p className="mt-2 text-sm text-green-500">
+              上次处理耗时: {elapsedTime.toFixed(1)} 秒
+            </p>
+          )}
         </div>
 
         {/* Tabs for Generate / History */}
@@ -340,7 +348,10 @@ const Index = () => {
                           className="px-8 h-12 text-base font-medium gradient-primary hover:opacity-90 transition-opacity"
                         >
                           {isProcessing ? (
-                            <>处理中...</>
+                            <>
+                              <Sparkles className="w-5 h-5 mr-2 animate-pulse" />
+                              处理中...
+                            </>
                           ) : !user ? (
                             <>请先登录</>
                           ) : (
@@ -352,6 +363,20 @@ const Index = () => {
                         </Button>
                       </div>
                     )}
+
+                    {/* Processing Status */}
+                    {isProcessing && (
+                      <div className="text-center text-sm text-muted-foreground">
+                        <p>正在调用 AI 进行图像处理...</p>
+                        <p className="text-xs mt-1">V2 同步接口，无需轮询，直接返回结果</p>
+                      </div>
+                    )}
+
+                    {/* Templates Info */}
+                    <div className="text-center text-xs text-muted-foreground mt-4">
+                      <p>使用模板链: {DEFAULT_TEMPLATE_IDS.join(" -> ")}</p>
+                      <p>可用模板: {templates.length} 个 | 模板链: {chains.length} 个</p>
+                    </div>
                   </div>
                 )}
               </div>
@@ -409,7 +434,7 @@ const Index = () => {
       <footer className="border-t border-border/50 mt-auto">
         <div className="container max-w-5xl mx-auto px-4 py-6 text-center">
           <p className="text-sm text-muted-foreground">
-            Powered by Gemini 3 Pro Image
+            Powered by Gemini 3 Pro Image - V2 同步接口
           </p>
         </div>
       </footer>

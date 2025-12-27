@@ -110,15 +110,16 @@ export const generationV2API = {
       templateIds?: string[];
       customPrompt?: string;
       timeoutSeconds?: number;
+      aspectRatio?: string;
+      imageSize?: string;
     }
   ) => {
     const formData = new FormData();
     formData.append('file', file);
     
+    // 发送模板ID列表为JSON字符串
     if (options?.templateIds) {
-      options.templateIds.forEach((id, index) => {
-        formData.append(`template_ids[${index}]`, id);
-      });
+      formData.append('template_ids', JSON.stringify(options.templateIds));
     }
     
     if (options?.customPrompt) {
@@ -129,10 +130,25 @@ export const generationV2API = {
       formData.append('timeout_seconds', options.timeoutSeconds.toString());
     }
     
+    // 发送宽高比和分辨率
+    if (options?.aspectRatio) {
+      formData.append('aspect_ratio', options.aspectRatio);
+    }
+    
+    if (options?.imageSize) {
+      formData.append('image_size', options.imageSize);
+    }
+    
     return api.post('/api/v2/process/upload', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
     });
   },
+
+  /**
+   * 获取生成配置
+   * @returns Promise with config
+   */
+  getConfig: () => api.get('/api/v2/config'),
 
   /**
    * 预览组合后的提示词
@@ -167,4 +183,21 @@ export const generationV2API = {
    * @returns Promise with category list
    */
   getCategories: () => api.get('/api/v2/templates/categories'),
+
+  /**
+   * 获取V2任务历史（直接从数据库查询，实时反映状态）
+   * @param skip - 跳过的任务数
+   * @param limit - 返回的任务数
+   * @param statusFilter - 状态过滤
+   * @returns Promise with task list
+   */
+  getTasks: (skip: number = 0, limit: number = 20, statusFilter?: string) =>
+    api.get('/api/v2/tasks', { params: { skip, limit, status_filter: statusFilter } }),
+
+  /**
+   * 获取V2任务详情（直接从数据库查询）
+   * @param taskId - 任务ID
+   * @returns Promise with task detail
+   */
+  getTaskDetail: (taskId: number) => api.get(`/api/v2/tasks/${taskId}`),
 };

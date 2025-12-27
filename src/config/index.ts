@@ -44,6 +44,34 @@ export const POLLING_CONFIG = {
   maxAttempts: 120,      // 最大轮询次数（120 * 5秒 = 10分钟）
 };
 
+// 图片生成配置
+export const GENERATION_CONFIG = {
+  // 支持的宽高比
+  aspectRatios: [
+    { value: "1:1", label: "1:1 (正方形)" },
+    { value: "2:3", label: "2:3 (竖版)" },
+    { value: "3:2", label: "3:2 (横版)" },
+    { value: "3:4", label: "3:4 (竖版)" },
+    { value: "4:3", label: "4:3 (横版)" },
+    { value: "4:5", label: "4:5 (竖版)" },
+    { value: "5:4", label: "5:4 (横版)" },
+    { value: "9:16", label: "9:16 (手机竖版)" },
+    { value: "16:9", label: "16:9 (宽银幕)" },
+    { value: "21:9", label: "21:9 (超宽银幕)" },
+  ],
+
+  // 支持的分辨率
+  resolutions: [
+    { value: "1K", label: "1K (约1024x1024)" },
+    { value: "2K", label: "2K (约2048x2048)" },
+    { value: "4K", label: "4K (约4096x4096)" },
+  ],
+
+  // 默认配置
+  defaultAspectRatio: "1:1",
+  defaultResolution: "1K",
+};
+
 /**
  * 获取必需的环境变量
  * 如果环境变量不存在，抛出明确的错误

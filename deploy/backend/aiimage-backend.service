@@ -1,0 +1,26 @@
+[Unit]
+Description=白底图生成器后端服务
+After=network.target mysql.service
+Wants=mysql.service
+
+[Service]
+Type=notify
+User=www
+Group=www
+WorkingDirectory=/www/wwwroot/生图网站/aiimage12334/backend
+Environment="PATH=/www/wwwroot/生图网站/aiimage12334/backend/.venv/bin"
+Environment="PYTHONPATH=/www/wwwroot/生图网站/aiimage12334/backend"
+ExecStart=/www/wwwroot/生图网站/aiimage12334/backend/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8001
+ExecReload=/bin/kill -HUP $MAINPID
+KillMode=mixed
+TimeoutStopSec=5
+PrivateTmp=true
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=aiimage-backend
+
+[Install]
+WantedBy=multi-user.target
+

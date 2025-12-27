@@ -8,6 +8,8 @@ import time
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 
+from PIL import Image
+
 from app.config import get_settings
 from app.services.prompt_template import (
     get_prompt_manager,
@@ -94,7 +96,9 @@ def process_image_with_gemini(
     output_path: str,
     template_ids: Optional[List[str]] = None,
     custom_prompt: Optional[str] = None,
-    timeout_seconds: int = 180
+    timeout_seconds: int = 180,
+    aspect_ratio: str = "1:1",
+    image_size: str = "1K"
 ) -> Dict[str, Any]:
     """
     使用 Gemini API 处理图片（生成白底图）
@@ -107,6 +111,8 @@ def process_image_with_gemini(
         template_ids: 提示词模板ID列表
         custom_prompt: 自定义提示词（追加到模板后）
         timeout_seconds: 超时时间（秒）
+        aspect_ratio: 宽高比，支持: "1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9"
+        image_size: 分辨率，支持: "1K", "2K", "4K"
         
     Returns:
         Dict: 包含以下键：
@@ -164,6 +170,7 @@ def process_image_with_gemini(
     
     logger.info(f"使用模板: {template_ids}")
     logger.info(f"提示词长度: {len(used_prompt)} 字符")
+    logger.info(f"生成参数: aspect_ratio={aspect_ratio}, image_size={image_size}")
     
     # 创建 Gemini 客户端（使用 AIHubMix 代理）
     client = genai.Client(
@@ -171,25 +178,24 @@ def process_image_with_gemini(
         http_options={"base_url": "http://localhost:8888/gemini"},
     )
     
-    # 可选参数
-    aspect_ratio = "1:1"
-    resolution = "2K"
-    
     logger.info(f"调用 Gemini API，模型: gemini-3-pro-image-preview")
-    logger.info(f"分辨率: {resolution}, 宽高比: {aspect_ratio}")
+    logger.info(f"输入图片: {image_path}")
     
     try:
-        # 调用 API（直接生成白底图，不需要额外提示词，模板已包含完整指令）
+        # 使用 PIL.Image 加载图片
+        input_image = Image.open(image_path)
+        
+        # 调用 API - 图生图模式，支持宽高比和分辨率
+        config = types.GenerateContentConfig(
+            response_modalities=['TEXT', 'IMAGE'],
+        )
+        
+        # 只有文本转图片才需要 image_config，图生图模式下不需要
+        # Gemini API 在图生图时会保持原图比例
         response = client.models.generate_content(
             model="gemini-3-pro-image-preview",
-            contents=used_prompt,
-            config=types.GenerateContentConfig(
-                response_modalities=['TEXT', 'IMAGE'],
-                image_config=types.ImageConfig(
-                    aspect_ratio=aspect_ratio,
-                    image_size=resolution,
-                ),
-            ),
+            contents=[used_prompt, input_image],  # 提示词 + 图片
+            config=config,
         )
         
         # 检查响应

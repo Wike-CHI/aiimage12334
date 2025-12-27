@@ -1,13 +1,14 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { format } from "date-fns";
 import { zhCN } from "date-fns/locale";
-import { Download, Eye, Clock, CheckCircle, XCircle, ArrowLeft, Play, Trash2, Ban } from "lucide-react";
+import { Download, Eye, Clock, CheckCircle, XCircle, ArrowLeft, Play, Trash2, Ban, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
-import { generationAPI } from "@/integrations/api/client";
+import { generationAPI, generationV2API } from "@/integrations/api/client";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/useAuth";
 
 interface Task {
   id: number;
@@ -40,6 +41,7 @@ export function TaskHistory({ tasks, onRefresh, onSelect }: TaskHistoryProps) {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [loadingTasks, setLoadingTasks] = useState<Set<number>>(new Set());
   const { toast } = useToast();
+  const { user, refreshProfile } = useAuth();
 
   const isActiveTask = (status: string) => status === "pending" || status === "processing";
   const isCompletedTask = (status: string) => status === "completed";
@@ -63,6 +65,62 @@ export function TaskHistory({ tasks, onRefresh, onSelect }: TaskHistoryProps) {
     }
   };
 
+  const handleRetry = async (task: Task) => {
+    if (!task.original_image_url) {
+      toast({
+        title: "无法重试",
+        description: "原图不存在",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    if (!user || user.credits < 1) {
+      toast({
+        title: "积分不足",
+        description: "请充值后重试",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    setLoadingTasks(prev => new Set(prev).add(task.id));
+
+    try {
+      // 使用 V2 同步接口重新生成
+      const response = await fetch(task.original_image_url);
+      const blob = await response.blob();
+      const file = new File([blob], "retry.png", { type: "image/png" });
+
+      const result = await generationV2API.process(file, {
+        templateIds: ['remove_bg', 'standardize', 'ecommerce', 'color_correct']
+      });
+
+      if (result.data.success) {
+        toast({
+          title: "重新生成成功",
+          description: `新图片已生成，耗时 ${result.data.elapsed_time} 秒`,
+        });
+        await refreshProfile();
+        onRefresh();
+      } else {
+        throw new Error(result.data.error_message || "生成失败");
+      }
+    } catch (error) {
+      toast({
+        title: "重试失败",
+        description: error instanceof Error ? error.message : "请稍后重试",
+        variant: "destructive"
+      });
+    } finally {
+      setLoadingTasks(prev => {
+        const next = new Set(prev);
+        next.delete(task.id);
+        return next;
+      });
+    }
+  };
+
   const handleCancel = async (taskId: number) => {
     if (!confirm("确定要取消这个任务吗？")) return;
 
@@ -70,30 +128,6 @@ export function TaskHistory({ tasks, onRefresh, onSelect }: TaskHistoryProps) {
     try {
       await generationAPI.cancelTask(taskId);
       toast({ title: "已取消", description: "任务已停止" });
-      onRefresh();
-    } catch (error) {
-      toast({
-        title: "操作失败",
-        description: error instanceof Error ? error.message : "请稍后重试",
-        variant: "destructive"
-      });
-    } finally {
-      setLoadingTasks(prev => {
-        const next = new Set(prev);
-        next.delete(taskId);
-        return next;
-      });
-    }
-  };
-
-  const handleContinue = async (taskId: number) => {
-    setLoadingTasks(prev => new Set(prev).add(taskId));
-    try {
-      const result = await generationAPI.continueTask(taskId);
-      toast({
-        title: "已开始生成",
-        description: `新任务ID: ${result.data.db_task_id}`,
-      });
       onRefresh();
     } catch (error) {
       toast({
@@ -139,12 +173,26 @@ export function TaskHistory({ tasks, onRefresh, onSelect }: TaskHistoryProps) {
         <Clock className="w-12 h-12 mx-auto mb-4 opacity-50" />
         <p>暂无历史记录</p>
         <p className="text-sm mt-1">生成白底图后将在这里显示</p>
+        <p className="text-xs mt-2 text-amber-500">使用 V2 同步接口，生成完成后直接返回结果</p>
       </div>
     );
   }
 
   return (
     <>
+      {/* Refresh Button */}
+      <div className="flex justify-end mb-4">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={onRefresh}
+          className="gap-2"
+        >
+          <RefreshCw className="w-4 h-4" />
+          刷新
+        </Button>
+      </div>
+
       <ScrollArea className="h-[400px]">
         <div className="space-y-3 pr-4">
           {tasks.map((task) => {
@@ -231,13 +279,13 @@ export function TaskHistory({ tasks, onRefresh, onSelect }: TaskHistoryProps) {
                     </Button>
                   )}
 
-                  {/* Continue button for failed tasks */}
+                  {/* Retry button for failed tasks */}
                   {isFailedTask(task.status) && (
                     <Button
                       variant="ghost"
                       size="icon"
                       className="h-8 w-8 text-blue-500"
-                      onClick={() => handleContinue(task.id)}
+                      onClick={() => handleRetry(task)}
                       disabled={isLoading}
                     >
                       <Play className="w-4 h-4" />
@@ -263,9 +311,22 @@ export function TaskHistory({ tasks, onRefresh, onSelect }: TaskHistoryProps) {
         </div>
       </ScrollArea>
 
+      {/* V2 Info Banner */}
+      <div className="mt-4 p-3 rounded-lg bg-blue-50 border border-blue-200">
+        <p className="text-xs text-blue-600 text-center">
+          提示: 新生成的白底图将直接返回结果，无需等待轮询
+        </p>
+      </div>
+
       {/* Preview Dialog */}
       <Dialog open={!!previewImage} onOpenChange={() => { setPreviewImage(null); setIsFullscreen(false); }}>
         <DialogContent className="max-w-[90vw] max-h-[90vh] p-0 bg-background/95 backdrop-blur-sm border-border">
+          <DialogHeader>
+            <DialogTitle className="sr-only">{previewImage?.title || "图片预览"}</DialogTitle>
+            <DialogDescription className="sr-only">
+              {previewImage?.title === "白底图" ? "生成的白底图预览" : "原图预览"}
+            </DialogDescription>
+          </DialogHeader>
           <div className="relative w-full h-full flex flex-col">
             <div className="flex items-center justify-between px-4 py-3 border-b border-border">
               {isFullscreen ? (

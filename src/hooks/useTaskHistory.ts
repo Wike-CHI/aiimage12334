@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { generationAPI } from "@/integrations/api/client";
+import { generationV2API } from "@/integrations/api/client";
 import { useAuth } from "./useAuth";
 
 interface Task {
@@ -14,7 +14,7 @@ interface Task {
   created_at: string;
 }
 
-export function useTaskHistory() {
+export function useTaskHistory(autoRefresh: boolean = false) {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const { user } = useAuth();
@@ -26,8 +26,10 @@ export function useTaskHistory() {
       return;
     }
 
+    setIsLoading(true);
     try {
-      const response = await generationAPI.getTasks(0, 50);
+      // 使用V2 API直接从数据库查询，实时反映任务状态
+      const response = await generationV2API.getTasks(0, 50);
       setTasks(response.data.tasks || []);
     } catch (error) {
       console.error("Error fetching tasks:", error);
@@ -35,6 +37,11 @@ export function useTaskHistory() {
       setIsLoading(false);
     }
   }, [user]);
+
+  // 手动刷新函数
+  const refetch = useCallback(async () => {
+    await fetchTasks();
+  }, [fetchTasks]);
 
   useEffect(() => {
     if (!user) {
@@ -46,14 +53,15 @@ export function useTaskHistory() {
       return;
     }
 
-    // Initial fetch
-    setIsLoading(true);
+    // 初始获取一次
     fetchTasks();
 
-    // Poll every 2 seconds to get updated status
-    intervalRef.current = setInterval(() => {
-      fetchTasks();
-    }, 2000);
+    // V2任务同步完成，但为了一致性仍支持轮询刷新
+    if (autoRefresh) {
+      intervalRef.current = setInterval(() => {
+        fetchTasks();
+      }, 2000);
+    }
 
     return () => {
       if (intervalRef.current) {
@@ -61,7 +69,7 @@ export function useTaskHistory() {
         intervalRef.current = null;
       }
     };
-  }, [user, fetchTasks]);
+  }, [user, fetchTasks, autoRefresh]);
 
-  return { tasks, isLoading, refetch: fetchTasks };
+  return { tasks, isLoading, refetch };
 }

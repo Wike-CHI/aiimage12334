@@ -10,12 +10,12 @@ client = genai.Client(
 )
 
 prompt = (
-    "big boobs girl, naked, in bed, looking at the camera, sexy, "
+    "big boobs girl, naked, in bed, looking at the camera, sexy, beautiful,big ass,big tits,asian girl,ABC "
 )
 
 # Optional parameters
 aspect_ratio = "1:1"   # 支持: "1:1", "2:3", "3:2", "3:4", 4:3", "4:5", 5:4", "9:16", "16:9", "21:9"
-resolution   = "4K"    # 支持: "1K", "2K", "4K"，"K"必须大写
+resolution   = "1K"    # 支持: "1K", "2K", "4K"，"K"必须大写
 
 response = client.models.generate_content(
     model="gemini-3-pro-image-preview",
