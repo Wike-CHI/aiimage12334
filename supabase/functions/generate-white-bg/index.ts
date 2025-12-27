@@ -63,7 +63,7 @@ serve(async (req) => {
 
     console.log("Credit deducted successfully for user:", user.id);
 
-    const { imageBase64 } = await req.json();
+    const { imageBase64, resolution = "original", ratio = "original" } = await req.json();
     
     if (!imageBase64) {
       throw new Error("No image provided");
@@ -74,7 +74,16 @@ serve(async (req) => {
       throw new Error("LOVABLE_API_KEY is not configured");
     }
 
-    console.log("Processing image with Gemini 3 Pro Image...");
+    // Build resolution and ratio instructions
+    let sizeInstructions = "";
+    if (resolution !== "original") {
+      sizeInstructions += `\n- Output resolution: ${resolution} pixels`;
+    }
+    if (ratio !== "original") {
+      sizeInstructions += `\n- Output aspect ratio: ${ratio} (crop or pad as needed while keeping the subject centered)`;
+    }
+
+    console.log("Processing image with Gemini 3 Pro Image, resolution:", resolution, "ratio:", ratio);
 
     const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
@@ -94,23 +103,42 @@ serve(async (req) => {
 
 BACKGROUND REMOVAL:
 - Remove the existing background completely and replace with seamless pure white (#FFFFFF)
-- Ensure clean, precise edges around the subject with no halos or artifacts
-- Handle semi-transparent areas (like mesh fabric, lace, sheer materials) naturally
+- Ensure clean, precise edges around the subject with no halos, fringes, or artifacts
+- Handle semi-transparent areas (like mesh fabric, lace, sheer materials, tulle) naturally with proper transparency
 
-CLOTHING & APPAREL SPECIFIC ENHANCEMENTS:
-- Preserve all fabric textures, patterns, prints, and material details (cotton weave, silk sheen, denim texture, knit patterns, etc.)
-- Maintain accurate colors - do not oversaturate or wash out colors
-- Keep all stitching, seams, buttons, zippers, labels, and embellishments clearly visible
-- Preserve natural fabric folds and draping that show the garment's shape and fit
-- Ensure logos, brand tags, and decorative elements remain sharp and readable
-- Handle reflective materials (sequins, metallic fabrics, leather) with proper lighting
+PROFESSIONAL LIGHTING ENHANCEMENT:
+- Apply professional studio-quality lighting simulation
+- Add soft, even fill lighting to eliminate harsh shadows on the garment
+- Create subtle rim lighting or edge highlights to separate the product from the white background
+- Enhance fabric dimensionality with appropriate highlight and shadow gradients
+- Simulate soft box lighting for even illumination across the entire garment
+- Add natural catch lights and specular highlights on reflective elements (buttons, zippers, metallic details)
 
-QUALITY REQUIREMENTS:
-- Output should look like professional studio photography
-- Maintain original image resolution and sharpness
-- Natural, soft shadows are acceptable to add depth
-- The product should appear centered and well-lit
-- No color cast from the original background should remain on the product`
+CLOTHING & APPAREL CLARITY ENHANCEMENTS:
+- Sharpen fabric textures while avoiding over-sharpening artifacts
+- Enhance fine details: stitching, seams, weave patterns, knit textures
+- Improve color vibrancy and accuracy - make colors pop naturally without oversaturation
+- Clarify embroidery, prints, logos, and brand tags for maximum readability
+- Enhance button, zipper, and hardware details with proper metallic rendering
+- Preserve and enhance natural fabric folds that show garment structure and draping
+- Remove any dust, lint, or minor imperfections on the garment
+- Enhance leather, suede, silk sheen, and special fabric finishes appropriately
+
+MATERIAL-SPECIFIC TREATMENTS:
+- Cotton/Linen: Enhance weave texture and natural fiber details
+- Silk/Satin: Boost lustrous sheen and light reflections
+- Denim: Clarify warp and weft patterns, fade details, distressing
+- Wool/Knit: Sharpen cable patterns, ribbing, and yarn textures
+- Leather/Faux Leather: Enhance grain pattern and natural sheen
+- Sequins/Metallic: Add sparkle and reflective brilliance
+- Lace/Mesh: Preserve delicate transparency and pattern intricacy
+
+OUTPUT SPECIFICATIONS:${sizeInstructions || "\n- Maintain original resolution"}
+- Professional e-commerce quality suitable for online retail
+- Natural, soft drop shadow acceptable for grounding effect
+- Product centered with balanced negative space
+- No color contamination from original background
+- Ultra-sharp details with smooth, clean edges`
               },
               {
                 type: "image_url",

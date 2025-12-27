@@ -5,14 +5,34 @@ import { ImageUploader } from "@/components/ImageUploader";
 import { ImagePreview } from "@/components/ImagePreview";
 import { UserMenu } from "@/components/UserMenu";
 import { Button } from "@/components/ui/button";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
+
+const RESOLUTIONS = [
+  { value: "original", label: "原始尺寸" },
+  { value: "1024x1024", label: "1024 × 1024" },
+  { value: "1280x1280", label: "1280 × 1280" },
+  { value: "2048x2048", label: "2048 × 2048" },
+];
+
+const RATIOS = [
+  { value: "original", label: "原始比例" },
+  { value: "1:1", label: "1:1 正方形" },
+  { value: "3:4", label: "3:4 竖版" },
+  { value: "4:3", label: "4:3 横版" },
+  { value: "9:16", label: "9:16 手机屏" },
+  { value: "16:9", label: "16:9 横屏" },
+];
 
 const Index = () => {
   const [originalImage, setOriginalImage] = useState<string | null>(null);
   const [processedImage, setProcessedImage] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [resolution, setResolution] = useState("original");
+  const [ratio, setRatio] = useState("original");
   const { toast } = useToast();
   const { user, profile, refreshProfile } = useAuth();
   const navigate = useNavigate();
@@ -49,7 +69,7 @@ const Index = () => {
 
     try {
       const { data, error } = await supabase.functions.invoke("generate-white-bg", {
-        body: { imageBase64: originalImage },
+        body: { imageBase64: originalImage, resolution, ratio },
       });
 
       if (error) {
@@ -153,6 +173,38 @@ const Index = () => {
                   onClear={handleClear}
                   onDownload={handleDownload}
                 />
+                
+                {/* Options */}
+                {!processedImage && (
+                  <div className="flex flex-wrap justify-center gap-6 pt-2">
+                    <div className="flex flex-col gap-2">
+                      <Label className="text-sm text-muted-foreground">输出分辨率</Label>
+                      <Select value={resolution} onValueChange={setResolution} disabled={isProcessing}>
+                        <SelectTrigger className="w-40">
+                          <SelectValue placeholder="选择分辨率" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {RESOLUTIONS.map((r) => (
+                            <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="flex flex-col gap-2">
+                      <Label className="text-sm text-muted-foreground">输出比例</Label>
+                      <Select value={ratio} onValueChange={setRatio} disabled={isProcessing}>
+                        <SelectTrigger className="w-40">
+                          <SelectValue placeholder="选择比例" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {RATIOS.map((r) => (
+                            <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                )}
                 
                 {/* Action Button */}
                 {!processedImage && (
