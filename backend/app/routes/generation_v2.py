@@ -309,7 +309,9 @@ async def process_upload(
         
         # 更新数据库记录
         db_task.status = TaskStatus.COMPLETED
-        db_task.result_image_url = result_path
+        # 使用相对路径供前端访问
+        relative_result_path = f"/whitebg-results/{result_filename}"
+        db_task.result_image_url = relative_result_path
         db.commit()
         
         logger.info(f"用户 {current_user.id} 任务 {db_task_id} 处理成功: {original_filename}")
@@ -317,7 +319,7 @@ async def process_upload(
         return ProcessResponse(
             success=True,
             task_id=db_task_id,
-            result_path=result_path,
+            result_path=relative_result_path,
             elapsed_time=result.get("elapsed_time"),
             used_templates=result.get("used_templates")
         )
