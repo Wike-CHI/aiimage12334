@@ -17,10 +17,6 @@ import { useTaskImageCache } from "@/hooks/useImageCache";
 import { useImageGenerationV2 } from "@/hooks/useImageGenerationV2";
 import { imageUtils } from "@/integrations/api/client";
 import { GENERATION_CONFIG } from "@/config";
-import { download } from "@tauri-apps/api/webviewWindow";
-import { save } from "@tauri-apps/api/dialog";
-import { writeFile } from "@tauri-apps/api/fs";
-import { sep } from "@tauri-apps/api/path";
 
 // 使用后端API返回的配置生成下拉选项
 const RESOLUTIONS = GENERATION_CONFIG.resolutions.map(r => ({
@@ -144,48 +140,24 @@ const Index = () => {
 
         // 自动下载图片到用户电脑
         try {
-          // 检查是否在Tauri环境中运行
-          const isTauri = window.__TAURI__ !== undefined;
+          // 获取图片数据
+          const downloadResponse = await fetch(resultUrl);
+          const downloadBlob = await downloadResponse.blob();
+          const blobUrl = URL.createObjectURL(downloadBlob);
 
-          if (isTauri) {
-            // Tauri环境：使用Tauri API下载文件
-            const filename = `white-bg-${result.task_id || Date.now()}.png`;
-            // 获取图片数据
-            const downloadResponse = await fetch(resultUrl);
-            const downloadBlob = await downloadResponse.blob();
-            const arrayBuffer = await downloadBlob.arrayBuffer();
-            const uint8Array = new Uint8Array(arrayBuffer);
+          // 创建下载链接
+          const link = document.createElement("a");
+          link.href = blobUrl;
+          link.download = `white-bg-${result.task_id || Date.now()}.png`;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          URL.revokeObjectURL(blobUrl);
 
-            // 保存到下载目录
-            const downloadsPath = await window.__TAURI__.path.downloadsDir();
-            const filePath = `${downloadsPath}${sep}${filename}`;
-            await writeFile({
-              path: filePath,
-              contents: uint8Array
-            });
-
-            toast({
-              title: "生成成功",
-              description: `图片已自动保存到: ${filePath}`,
-            });
-          } else {
-            // 浏览器环境：使用传统的下载方式
-            const downloadResponse = await fetch(resultUrl);
-            const downloadBlob = await downloadResponse.blob();
-            const blobUrl = URL.createObjectURL(downloadBlob);
-            const link = document.createElement("a");
-            link.href = blobUrl;
-            link.download = `white-bg-${result.task_id || Date.now()}.png`;
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-            URL.revokeObjectURL(blobUrl);
-
-            toast({
-              title: "生成成功",
-              description: "图片已自动保存到下载文件夹",
-            });
-          }
+          toast({
+            title: "生成成功",
+            description: "图片已自动下载",
+          });
         } catch (downloadError) {
           console.error("Auto-download failed:", downloadError);
           // 下载失败不影响主流程
