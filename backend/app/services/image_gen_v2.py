@@ -227,7 +227,6 @@ def process_image_with_gemini(
                 logger.info(f"图片已保存: {output_path}")
                 
                 # 读取图片并转换为 Base64
-                import base64
                 with open(output_path, "rb") as img_file:
                     result_image_base64 = base64.b64encode(img_file.read()).decode('utf-8')
                 logger.info(f"图片已转换为 Base64，长度: {len(result_image_base64)} 字符")
