@@ -6,7 +6,7 @@ import { useToast } from './use-toast';
 interface ProcessResult {
   success: boolean;
   task_id: number | null;  // 数据库任务ID
-  result_path: string | null;
+  result_image: string | null;  // Base64 编码的图片数据
   elapsed_time: number | null;
   used_templates: string[] | null;
   error_message?: string;
@@ -87,13 +87,13 @@ export function useImageGenerationV2(
     if (!user) {
       const errorMsg = '请先登录';
       setError(errorMsg);
-      return { success: false, task_id: null, result_path: null, elapsed_time: null, used_templates: null, error_message: errorMsg };
+      return { success: false, task_id: null, result_image: null, elapsed_time: null, used_templates: null, error_message: errorMsg };
     }
 
     if (user.credits < 1) {
       const errorMsg = '积分不足';
       setError(errorMsg);
-      return { success: false, task_id: null, result_path: null, elapsed_time: null, used_templates: null, error_message: errorMsg };
+      return { success: false, task_id: null, result_image: null, elapsed_time: null, used_templates: null, error_message: errorMsg };
     }
 
     setIsProcessing(true);
@@ -128,7 +128,7 @@ export function useImageGenerationV2(
         return {
           success: true,
           task_id: data.task_id,
-          result_path: data.result_path,
+          result_image: data.result_image,
           elapsed_time: data.elapsed_time,
           used_templates: data.used_templates,
         };
@@ -145,7 +145,7 @@ export function useImageGenerationV2(
         return {
           success: false,
           task_id: null,
-          result_path: null,
+          result_image: null,
           elapsed_time: elapsed,
           used_templates: null,
           error_message: errorMsg,
@@ -167,7 +167,7 @@ export function useImageGenerationV2(
       return {
         success: false,
         task_id: null,
-        result_path: null,
+        result_image: null,
         elapsed_time: elapsed,
         used_templates: null,
         error_message: errorMsg,

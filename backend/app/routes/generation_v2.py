@@ -85,7 +85,7 @@ class ProcessResponse(BaseModel):
     """图片处理响应"""
     success: bool
     task_id: Optional[int] = None  # 数据库任务ID
-    result_path: Optional[str] = None
+    result_image: Optional[str] = None  # Base64 编码的图片数据
     elapsed_time: Optional[float] = None
     used_templates: Optional[List[str]] = None
     error_message: Optional[str] = None
@@ -309,9 +309,6 @@ async def process_upload(
         
         # 更新数据库记录
         db_task.status = TaskStatus.COMPLETED
-        # 使用相对路径供前端访问
-        relative_result_path = f"/whitebg-results/{result_filename}"
-        db_task.result_image_url = relative_result_path
         db.commit()
         
         logger.info(f"用户 {current_user.id} 任务 {db_task_id} 处理成功: {original_filename}")
@@ -319,7 +316,7 @@ async def process_upload(
         return ProcessResponse(
             success=True,
             task_id=db_task_id,
-            result_path=relative_result_path,
+            result_image=result.get("result_image"),
             elapsed_time=result.get("elapsed_time"),
             used_templates=result.get("used_templates")
         )

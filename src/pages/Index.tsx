@@ -117,10 +117,10 @@ const Index = () => {
       // 传递宽高比和分辨率到后端API
       const result = await processImage(file, ratio, resolution);
 
-      if (result.success && result.result_path) {
-        // 获取完整的结果图片 URL
-        const resultUrl = imageUtils.getResultUrl(result.result_path);
-        setProcessedImage(resultUrl);
+      if (result.success && result.result_image) {
+        // 直接使用 Base64 图片数据
+        const imageUrl = `data:image/png;base64,${result.result_image}`;
+        setProcessedImage(imageUrl);
 
         // 缓存处理后的图片（使用时间戳作为ID）
         const cacheId = Date.now();
@@ -132,6 +132,16 @@ const Index = () => {
           "4K": 4096
         };
         const pixelResolution = resolutionMap[resolution] || 1024;
+
+        // 将 Base64 转换为 Blob 用于缓存
+        const byteCharacters = atob(result.result_image);
+        const byteNumbers = new Array(byteCharacters.length);
+        for (let i = 0; i < byteCharacters.length; i++) {
+          byteNumbers[i] = byteCharacters.charCodeAt(i);
+        }
+        const byteArray = new Uint8Array(byteNumbers);
+        const blob = new Blob([byteArray], { type: 'image/png' });
+
         await cacheTaskImage(cacheId, blob, pixelResolution, pixelResolution);
         setProcessedCacheKey(cacheKey);
 
@@ -139,29 +149,17 @@ const Index = () => {
         refetchTasks();
 
         // 自动下载图片到用户电脑
-        try {
-          // 获取图片数据
-          const downloadResponse = await fetch(resultUrl);
-          const downloadBlob = await downloadResponse.blob();
-          const blobUrl = URL.createObjectURL(downloadBlob);
+        const link = document.createElement("a");
+        link.href = imageUrl;
+        link.download = `white-bg-${result.task_id || Date.now()}.png`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
 
-          // 创建下载链接
-          const link = document.createElement("a");
-          link.href = blobUrl;
-          link.download = `white-bg-${result.task_id || Date.now()}.png`;
-          document.body.appendChild(link);
-          link.click();
-          document.body.removeChild(link);
-          URL.revokeObjectURL(blobUrl);
-
-          toast({
-            title: "生成成功",
-            description: "图片已自动下载",
-          });
-        } catch (downloadError) {
-          console.error("Auto-download failed:", downloadError);
-          // 下载失败不影响主流程
-        }
+        toast({
+          title: "生成成功",
+          description: "图片已自动下载",
+        });
       }
     } catch (error) {
       console.error("Error generating white background:", error);

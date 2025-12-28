@@ -213,6 +213,7 @@ def process_image_with_gemini(
         
         # 保存生成的图片
         result_path = None
+        result_image_base64 = None
         for part in response.parts:
             if part.text:
                 logger.info(f"API返回文本: {part.text[:100]}...")
@@ -224,6 +225,12 @@ def process_image_with_gemini(
                 image.save(output_path)
                 result_path = output_path
                 logger.info(f"图片已保存: {output_path}")
+                
+                # 读取图片并转换为 Base64
+                import base64
+                with open(output_path, "rb") as img_file:
+                    result_image_base64 = base64.b64encode(img_file.read()).decode('utf-8')
+                logger.info(f"图片已转换为 Base64，长度: {len(result_image_base64)} 字符")
                 break
         
         if not result_path:
@@ -237,6 +244,7 @@ def process_image_with_gemini(
         
         result["success"] = True
         result["result_path"] = result_path
+        result["result_image"] = result_image_base64
         result["elapsed_time"] = round(elapsed_time, 2)
         
         return result
