@@ -9,7 +9,7 @@ export const API_CONFIG = {
   baseURL: getEnvRequired('VITE_API_URL'),
   
   // API 超时时间（毫秒）
-  timeout: 30000,
+  timeout: 600000,
 };
 
 // 图片服务配置

@@ -96,7 +96,7 @@ def process_image_with_gemini(
     output_path: str,
     template_ids: Optional[List[str]] = None,
     custom_prompt: Optional[str] = None,
-    timeout_seconds: int = 180,
+    timeout_seconds: int = 600,
     aspect_ratio: str = "1:1",
     image_size: str = "1K"
 ) -> Dict[str, Any]:
@@ -173,9 +173,10 @@ def process_image_with_gemini(
     logger.info(f"生成参数: aspect_ratio={aspect_ratio}, image_size={image_size}")
     
     # 创建 Gemini 客户端（使用 AIHubMix 代理）
+    logger.info(f"创建 Gemini 客户端，代理: https://aihubmix.com/gemini")
     client = genai.Client(
         api_key=settings.GEMINI_API_KEY,
-        http_options={"base_url": "http://localhost:8888/gemini"},
+        http_options={"base_url": "https://aihubmix.com/gemini"},
     )
     
     logger.info(f"调用 Gemini API，模型: gemini-3-pro-image-preview")
@@ -183,20 +184,25 @@ def process_image_with_gemini(
     
     try:
         # 使用 PIL.Image 加载图片
+        logger.info(f"加载图片...")
         input_image = Image.open(image_path)
+        logger.info(f"图片加载完成，尺寸: {input_image.size}")
         
         # 调用 API - 图生图模式，支持宽高比和分辨率
+        logger.info(f"发送 API 请求...")
         config = types.GenerateContentConfig(
             response_modalities=['TEXT', 'IMAGE'],
         )
         
         # 只有文本转图片才需要 image_config，图生图模式下不需要
         # Gemini API 在图生图时会保持原图比例
+        logger.info(f"等待 API 响应 (超时: {timeout_seconds}秒)...")
         response = client.models.generate_content(
             model="gemini-3-pro-image-preview",
             contents=[used_prompt, input_image],  # 提示词 + 图片
             config=config,
         )
+        logger.info(f"API 响应接收完成")
         
         # 检查响应
         if not response or not response.parts:
@@ -283,7 +289,7 @@ def process_image_with_template_chain(
     output_path: str,
     template_chain_id: str = "default",
     custom_prompt: Optional[str] = None,
-    timeout_seconds: int = 180
+    timeout_seconds: int = 600
 ) -> Dict[str, Any]:
     """
     使用预设模板链处理图片

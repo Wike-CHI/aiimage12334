@@ -6,7 +6,7 @@ API_KEY = "sk-yZyfgpg5rgF9JL8k818cBe9e62364213904139E91c2fD7Fa"
 
 client = genai.Client(
     api_key=API_KEY,
-    http_options={"base_url": "http://localhost:8888/gemini"},  
+    http_options={"base_url": "http://aihubmix.com/gemini"},  
 )
 
 prompt = (

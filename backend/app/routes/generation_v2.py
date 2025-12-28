@@ -282,8 +282,10 @@ async def process_upload(
     
     try:
         # 保存上传的文件
+        logger.info(f"开始保存文件: {original_path}")
         async with aiofiles.open(original_path, "wb") as f:
             content = await file.read()
+            logger.info(f"文件读取完成，大小: {len(content)} 字节")
             # 检查文件大小（最大10MB）
             if len(content) > 10 * 1024 * 1024:
                 raise HTTPException(
@@ -291,8 +293,10 @@ async def process_upload(
                     detail="文件过大，最大支持10MB"
                 )
             await f.write(content)
+        logger.info(f"文件保存完成: {original_path}")
         
         # 执行图片处理（传递宽高比和分辨率参数）
+        logger.info(f"开始调用 Gemini API...")
         result = process_image_with_gemini(
             image_path=original_path,
             output_path=result_path,
