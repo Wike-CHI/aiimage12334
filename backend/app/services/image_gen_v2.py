@@ -274,6 +274,11 @@ def process_image_with_gemini(
                     logger.info(f"调整图片尺寸: {image.size} -> ({target_width}, {target_height}) (使用等比裁剪)")
                     image = ImageOps.fit(image, (target_width, target_height), Image.Resampling.LANCZOS)
 
+                # 添加白边边距（约 12%），让产品缩小、周围留出更多白边
+                margin = int(min(target_width, target_height) * 0.12)
+                image = ImageOps.expand(image, border=margin, fill='white')
+                logger.info(f"已添加 {margin}px 白边边距")
+
                 image.save(output_path)
                 result_path = output_path
                 logger.info(f"图片已保存: {output_path}")
