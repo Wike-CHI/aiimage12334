@@ -202,11 +202,19 @@ def remove_background_with_gemini(
         # 保存生成的图片
         result_path = None
         for part in response.parts:
-            if image := part.as_image():
+            if gemini_image := part.as_image():
+                # types.Image 有 image_bytes 字段，包含图片数据
+                image_bytes = gemini_image.image_bytes
+                image = Image.open(io.BytesIO(image_bytes))
+
                 # 确保输出目录存在
                 output_dir = Path(output_path).parent
                 output_dir.mkdir(parents=True, exist_ok=True)
 
+                # 调整图片尺寸
+                image = image.resize((width, height))
+
+                # 保存图片
                 image.save(output_path)
                 result_path = output_path
                 break
