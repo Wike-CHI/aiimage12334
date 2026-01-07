@@ -270,8 +270,9 @@ def process_image_with_gemini(
                 target_width, target_height = calculate_target_size(aspect_ratio, image_size)
 
                 if image.size != (target_width, target_height):
-                    logger.info(f"调整图片尺寸: {image.size} -> ({target_width}, {target_height}) (Resampling: LANCZOS)")
-                    image = image.resize((target_width, target_height), Image.Resampling.LANCZOS)
+                    # 使用 fit 保持比例，自动裁剪多余部分，避免拉伸
+                    logger.info(f"调整图片尺寸: {image.size} -> ({target_width}, {target_height}) (使用等比裁剪)")
+                    image = ImageOps.fit(image, (target_width, target_height), Image.Resampling.LANCZOS)
 
                 image.save(output_path)
                 result_path = output_path
