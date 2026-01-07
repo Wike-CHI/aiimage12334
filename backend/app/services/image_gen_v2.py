@@ -9,7 +9,7 @@ import time
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 
-from PIL import Image
+from PIL import Image, ImageOps
 
 from app.config import get_settings
 from app.services.prompt_template import (
@@ -259,17 +259,20 @@ def process_image_with_gemini(
                 image_bytes = gemini_image.image_bytes
                 image = Image.open(io.BytesIO(image_bytes))
 
+                # 自动修正 EXIF 方向（旋转90度等问题）
+                image = ImageOps.exif_transpose(image)
+
                 # 确保输出目录存在
                 output_dir = Path(output_path).parent
                 output_dir.mkdir(parents=True, exist_ok=True)
 
                 # 计算目标尺寸并调整
                 target_width, target_height = calculate_target_size(aspect_ratio, image_size)
-                
+
                 if image.size != (target_width, target_height):
                     logger.info(f"调整图片尺寸: {image.size} -> ({target_width}, {target_height}) (Resampling: LANCZOS)")
                     image = image.resize((target_width, target_height), Image.Resampling.LANCZOS)
-                
+
                 image.save(output_path)
                 result_path = output_path
                 logger.info(f"图片已保存: {output_path}")
