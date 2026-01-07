@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Download, RefreshCw, X, ZoomIn, ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 
 interface ImagePreviewProps {
@@ -119,6 +119,9 @@ export function ImagePreview({
       {/* Lightbox Preview Dialog */}
       <Dialog open={!!previewImage} onOpenChange={() => { setPreviewImage(null); setIsFullscreen(false); }}>
         <DialogContent className="max-w-[90vw] max-h-[90vh] p-0 bg-background/95 backdrop-blur-sm border-border">
+          <DialogHeader>
+            <DialogTitle className="sr-only">{previewImage?.title || "图片预览"}</DialogTitle>
+          </DialogHeader>
           <div className="relative w-full h-full flex flex-col">
             <div className="flex items-center justify-between px-4 py-3 border-b border-border">
               {isFullscreen ? (

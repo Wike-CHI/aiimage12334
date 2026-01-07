@@ -43,9 +43,11 @@ export function TaskHistory({ tasks, onRefresh, onSelect }: TaskHistoryProps) {
   const { toast } = useToast();
   const { user, refreshProfile } = useAuth();
 
-  const isActiveTask = (status: string) => status === "pending" || status === "processing";
-  const isCompletedTask = (status: string) => status === "completed";
-  const isFailedTask = (status: string) => status === "failed" || status === "cancelled";
+  const isActiveTask = (status: string) =>
+    status.toUpperCase() === "PENDING" || status.toUpperCase() === "PROCESSING";
+  const isCompletedTask = (status: string) => status.toUpperCase() === "COMPLETED";
+  const isFailedTask = (status: string) =>
+    status.toUpperCase() === "FAILED" || status.toUpperCase() === "CANCELLED";
 
   const handleDownload = async (url: string) => {
     try {
