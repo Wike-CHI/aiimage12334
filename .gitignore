@@ -68,3 +68,5 @@ backend/build
 
 venv3.11/
 .venv312
+results/v2_quick_result.png
+results/v2_test_result.png
