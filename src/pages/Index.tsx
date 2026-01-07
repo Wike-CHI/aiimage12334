@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from "react";
+import React, { useState, useCallback, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Sparkles, History, Upload } from "lucide-react";
 import { ImageUploader } from "@/components/ImageUploader";
@@ -45,6 +45,8 @@ const Index = () => {
   const [resolution, setResolution] = useState<string>(GENERATION_CONFIG.defaultResolution);
   const [ratio, setRatio] = useState<string>(GENERATION_CONFIG.defaultAspectRatio);
   const [activeTab, setActiveTab] = useState("generate");
+  // 倒计时状态
+  const [countdown, setCountdown] = useState<number | null>(null);
   const { toast } = useToast();
   const { user } = useAuth();
   const { tasks, refetch: refetchTasks } = useTaskHistory();
@@ -59,6 +61,7 @@ const Index = () => {
     pollTaskStatus,
     isProcessing,
     elapsedTime,
+    estimatedRemainingTime,
     templates,
     chains,
     isLoadingTemplates,
@@ -71,6 +74,13 @@ const Index = () => {
   useEffect(() => {
     refreshTemplates();
   }, [refreshTemplates]);
+
+  // 同步预估剩余时间到倒计时
+  useEffect(() => {
+    if (isProcessing && estimatedRemainingTime !== null) {
+      setCountdown(estimatedRemainingTime);
+    }
+  }, [isProcessing, estimatedRemainingTime]);
 
   const handleImageSelect = useCallback(async (imageBase64: string, cacheKey?: string) => {
     setOriginalImage(imageBase64);
@@ -121,6 +131,7 @@ const Index = () => {
 
       // 启动轮询任务状态
       pollTaskStatus(
+        taskId,
         // 任务完成回调
         async (result) => {
           // 刷新任务历史，显示新完成的任务
@@ -352,8 +363,15 @@ const Index = () => {
                     {/* Processing Status */}
                     {isProcessing && (
                       <div className="text-center text-sm text-muted-foreground">
-                        <p>正在调用 AI 进行图像处理...</p>
-                        <p className="text-xs mt-1">V2 同步接口，无需轮询，直接返回结果</p>
+                        <p>正在后台处理，请稍候...</p>
+                        {countdown !== null && (
+                          <p className="text-xs mt-1 text-amber-500 font-medium">
+                            预估剩余时间: {countdown} 秒
+                          </p>
+                        )}
+                        <p className="text-xs mt-1 text-blue-500">
+                          可继续上传其他图片
+                        </p>
                       </div>
                     )}
 

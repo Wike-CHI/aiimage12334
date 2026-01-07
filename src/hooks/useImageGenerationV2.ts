@@ -17,6 +17,7 @@ interface TaskStatus {
   status: string;
   result_image_url: string | null;
   elapsed_time: number | null;
+  estimated_remaining_seconds: number | null;
   error_message: string | null;
 }
 
@@ -50,6 +51,7 @@ interface UseImageGenerationV2Return {
   pollTaskStatus: (taskId: number, onComplete: (result: ProcessResult) => void, onError?: (error: string) => void) => void;
   isProcessing: boolean;
   elapsedTime: number | null;
+  estimatedRemainingTime: number | null;
   templates: TemplateInfo[];
   chains: ChainInfo[];
   isLoadingTemplates: boolean;
@@ -62,6 +64,7 @@ export function useImageGenerationV2(
 ): UseImageGenerationV2Return {
   const [isProcessing, setIsProcessing] = useState(false);
   const [elapsedTime, setElapsedTime] = useState<number | null>(null);
+  const [estimatedRemainingTime, setEstimatedRemainingTime] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [templates, setTemplates] = useState<TemplateInfo[]>([]);
   const [chains, setChains] = useState<ChainInfo[]>([]);
@@ -245,6 +248,13 @@ export function useImageGenerationV2(
           const response = await generationV2API.getTaskStatus(numericTaskId);
           const status: TaskStatus = response.data;
 
+          // 更新预估剩余时间
+          if (status.status === 'PENDING' || status.status === 'PROCESSING') {
+            setEstimatedRemainingTime(status.estimated_remaining_seconds);
+          } else {
+            setEstimatedRemainingTime(null);
+          }
+
           if (status.status === 'COMPLETED') {
             // 任务完成
             await refreshProfile();
@@ -266,6 +276,7 @@ export function useImageGenerationV2(
               next.delete(numericTaskId);
               return next;
             });
+            setEstimatedRemainingTime(null);
             return true;
           } else if (status.status === 'FAILED') {
             // 任务失败
@@ -285,6 +296,7 @@ export function useImageGenerationV2(
               next.delete(numericTaskId);
               return next;
             });
+            setEstimatedRemainingTime(null);
             return true;
           } else {
             // 仍在处理中，继续轮询
@@ -333,6 +345,7 @@ export function useImageGenerationV2(
     pollTaskStatus,
     isProcessing,
     elapsedTime,
+    estimatedRemainingTime,
     templates,
     chains,
     isLoadingTemplates,

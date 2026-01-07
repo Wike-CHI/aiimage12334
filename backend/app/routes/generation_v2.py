@@ -613,6 +613,7 @@ class AsyncTaskResponse(BaseModel):
     task_id: int
     status: str
     message: str
+    estimated_seconds: int = 30  # 默认预估 30 秒
 
 
 class TaskStatusResponse(BaseModel):
@@ -621,6 +622,7 @@ class TaskStatusResponse(BaseModel):
     status: str
     result_image_url: Optional[str] = None
     elapsed_time: Optional[float] = None
+    estimated_remaining_seconds: Optional[int] = None
     error_message: Optional[str] = None
 
 
@@ -820,6 +822,8 @@ def get_task_status(
     - 只能查询自己的任务
     - 返回任务当前状态和结果（如果已完成）
     """
+    from datetime import datetime, timezone
+
     task = db.query(GenerationTask).filter(
         GenerationTask.id == task_id,
         GenerationTask.user_id == current_user.id
@@ -831,11 +835,27 @@ def get_task_status(
             detail="任务不存在"
         )
 
+    # 计算预估剩余时间
+    estimated_remaining = None
+    if task.status in [TaskStatus.PENDING, TaskStatus.PROCESSING]:
+        # 计算已等待时间
+        if task.created_at:
+            created_at = task.created_at
+            if created_at.tzinfo is None:
+                created_at = created_at.replace(tzinfo=timezone.utc)
+            elapsed = (datetime.now(timezone.utc) - created_at).total_seconds()
+            # 预估总耗时约 30 秒，剩余时间 = 30 - 已等待时间
+            estimated_remaining = max(0, 30 - int(elapsed))
+            # 如果等待超过 30 秒，预估为 15 秒后完成
+            if estimated_remaining == 0:
+                estimated_remaining = 15
+
     return TaskStatusResponse(
         task_id=task.id,
         status=task.status.value if hasattr(task.status, 'value') else task.status,
         result_image_url=make_image_url(task.result_image_url) if task.result_image_url else None,
         elapsed_time=task.elapsed_time,
+        estimated_remaining_seconds=estimated_remaining,
         error_message=task.error_message
     )
 
