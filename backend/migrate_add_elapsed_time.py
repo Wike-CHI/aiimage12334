@@ -23,7 +23,7 @@ from sqlalchemy.orm import sessionmaker
 # 格式: mysql+pymysql://用户名:密码@主机:端口/数据库名
 DATABASE_URL = os.getenv(
     "DATABASE_URL",
-    "mysql+pymysql://root:your_password@localhost:3306/aiimage"
+    "mysql+pymysql://root:123456@localhost:3306/aiimage"
 )
 
 
