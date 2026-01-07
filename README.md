@@ -49,6 +49,24 @@ aiimage12334/
 
 详细部署指南请参考 [DEPLOY.md](./DEPLOY.md)
 
+### 开发环境启动
+
+#### 后端服务
+
+Windows 环境下，推荐使用以下命令一键启动后端服务（自动处理端口冲突和环境激活）：
+
+```bash
+npm run dev:backend
+```
+
+或者直接运行脚本：
+
+```cmd
+scripts\start_backend.bat
+```
+
+详细说明请参考 [BACKEND_SCRIPT_USAGE.md](docs/BACKEND_SCRIPT_USAGE.md)。
+
 ### 服务器部署（systemctl）
 
 #### 1. 环境准备
