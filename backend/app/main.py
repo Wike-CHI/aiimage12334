@@ -10,6 +10,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse
+from sqlalchemy import text
 
 from app.routes import auth, generation, generation_v2
 from app.database import engine, Base
@@ -110,7 +111,7 @@ def health_check():
     db_status = "healthy"
     try:
         with engine.connect() as conn:
-            conn.execute("SELECT 1")
+            conn.execute(text("SELECT 1"))
     except Exception as e:
         db_status = f"unhealthy: {str(e)}"
 
@@ -146,7 +147,7 @@ def readiness_check():
     try:
         # 检查数据库连接
         with engine.connect() as conn:
-            conn.execute("SELECT 1")
+            conn.execute(text("SELECT 1"))
 
         return {"status": "ready"}
 
