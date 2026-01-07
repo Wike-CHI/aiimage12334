@@ -35,6 +35,33 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(RESULT_DIR, exist_ok=True)
 
 
+def make_image_url(path: str) -> str:
+    """
+    将相对路径转换为完整的访问 URL
+
+    Args:
+        path: 相对路径，如 "uploads/1_original.png"
+
+    Returns:
+        完整的 URL，如 "http://localhost:8001/uploads/1_original.png"
+    """
+    if not path:
+        return ""
+
+    # 如果已经是完整 URL，直接返回
+    if path.startswith("http://") or path.startswith("https://"):
+        return path
+
+    # 从配置获取后端地址
+    backend_url = f"http://{settings.BACKEND_HOST}:{settings.BACKEND_PORT}"
+
+    # 确保路径以 / 开头
+    if not path.startswith("/"):
+        path = "/" + path
+
+    return f"{backend_url}{path}"
+
+
 # ============ 请求/响应模型 ============
 
 class ProcessRequest(BaseModel):
@@ -524,8 +551,8 @@ def get_v2_task_history(
             V2TaskHistoryItem(
                 id=task.id,
                 user_id=task.user_id,
-                original_image_url=task.original_image_url,
-                result_image_url=task.result_image_url,
+                original_image_url=make_image_url(task.original_image_url),
+                result_image_url=make_image_url(task.result_image_url),
                 status=task.status.value if hasattr(task.status, 'value') else task.status,
                 credits_used=task.credits_used,
                 width=task.width,
@@ -564,8 +591,8 @@ def get_v2_task_detail(
     return V2TaskHistoryItem(
         id=task.id,
         user_id=task.user_id,
-        original_image_url=task.original_image_url,
-        result_image_url=task.result_image_url,
+        original_image_url=make_image_url(task.original_image_url),
+        result_image_url=make_image_url(task.result_image_url),
         status=task.status.value if hasattr(task.status, 'value') else task.status,
         credits_used=task.credits_used,
         width=task.width,
