@@ -254,8 +254,10 @@ def process_image_with_gemini(
         for part in response.parts:
             if part.text:
                 logger.info(f"API返回文本: {part.text[:100]}...")
-            elif image := part.as_image():
-                # part.as_image() 直接返回 PIL Image 对象
+            elif gemini_image := part.as_image():
+                # types.Image 有 image_bytes 字段，包含图片数据
+                image_bytes = gemini_image.image_bytes
+                image = Image.open(io.BytesIO(image_bytes))
 
                 # 确保输出目录存在
                 output_dir = Path(output_path).parent
