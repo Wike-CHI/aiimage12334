@@ -23,7 +23,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-White background image generator (白底图生成器) - An AI-powered web app that removes backgrounds from images using Gemini 3 Pro Image via Supabase Edge Functions.
+White background image generator (白底图生成器) - An AI-powered web application that removes backgrounds from images using Gemini 3 Pro Image via a Python FastAPI backend.
 
 ## Commands
 
@@ -33,6 +33,8 @@ npm run build        # Production build
 npm run build:dev    # Development build
 npm run lint         # Run ESLint
 npm run preview      # Preview production build
+npm run tauri dev    # Start Tauri desktop app dev mode
+npm run tauri build  # Build Tauri desktop app
 ```
 
 ## Architecture
@@ -40,24 +42,34 @@ npm run preview      # Preview production build
 ### Core Stack
 - **React 18 + TypeScript** with Vite 5.x
 - **Tailwind CSS 3.4** with shadcn/ui component library (52+ components in `src/components/ui/`)
-- **Supabase** for Auth, Database, and Edge Functions
+- **Python FastAPI** backend with MySQL database
 - **TanStack Query 5** for server state (`src/hooks/useTaskHistory.ts`)
 - **React Router 6** for routing
+- **Tauri 2.0** for cross-platform desktop app
 
 ### Path Alias
 `@` maps to `src/` (configured in `tsconfig.json` and `vite.config.ts`)
 
+### API Integration
+- **Axios client** with JWT interceptor (`src/integrations/api/client.ts`)
+- **V2 API** (recommended): `/api/v2/process/upload` - synchronous image processing
+- **Legacy V1 API**: `/api/generate` - async processing with polling
+- Backend URL configured via `VITE_API_URL` (defaults to `http://localhost:8001`)
+
 ### Key Patterns
 
-1. **Server State**: All Supabase data fetching uses TanStack Query hooks for caching, optimistic updates, and realtime subscriptions
-2. **Auth**: React Context pattern via `useAuth()` hook wrapping the app
-3. **Image Generation**: Supabase Edge Function invoked via `supabase.functions.invoke('generate-white-bg')`
+1. **Server State**: TanStack Query hooks for data fetching, caching, and polling
+2. **Auth**: React Context pattern via `useAuth()` hook with JWT tokens
+3. **Image Processing**: Axios API calls with template chains (remove_bg -> standardize -> ecommerce -> color_correct)
 4. **UI Components**: shadcn/ui style - base components in `ui/`, composite components at root level
 
 ### Important Files
 
 - `src/App.tsx` - Providers hierarchy (QueryClient, Auth, Router)
 - `src/pages/Index.tsx` - Main generator UI
-- `src/hooks/useTaskHistory.ts` - Task history with realtime updates
-- `src/integrations/supabase/client.ts` - Supabase client configuration
+- `src/hooks/useAuth.tsx` - Auth context with signIn/signUp/signOut
+- `src/hooks/useTaskHistory.ts` - Task history with optional polling
+- `src/hooks/useImageGenerationV2.ts` - Synchronous V2 image processing
+- `src/integrations/api/client.ts` - Axios client with JWT interceptor + API endpoints
+- `src/config/index.ts` - Centralized configuration
 - `src/lib/utils.ts` - `cn()` utility (clsx + tailwind-merge)

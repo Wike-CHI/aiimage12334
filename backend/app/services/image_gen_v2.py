@@ -91,6 +91,42 @@ def validate_image(image_path: str) -> bool:
     return True
 
 
+def calculate_target_size(aspect_ratio: str, image_size: str) -> tuple[int, int]:
+    """
+    计算目标图片尺寸
+    
+    Args:
+        aspect_ratio: 宽高比 (e.g., "16:9")
+        image_size: 分辨率档位 ("1K", "2K", "4K")
+        
+    Returns:
+        tuple[int, int]: (width, height)
+    """
+    # 基准长边尺寸
+    size_map = {
+        "1K": 1024,
+        "2K": 2048,
+        "4K": 4096
+    }
+    base_size = size_map.get(image_size, 1024)
+
+    try:
+        w_ratio, h_ratio = map(int, aspect_ratio.split(":"))
+    except ValueError:
+        w_ratio, h_ratio = 1, 1
+
+    if w_ratio > h_ratio:
+        # 横向：宽度为基准，高度按比例计算
+        width = base_size
+        height = int(base_size * (h_ratio / w_ratio))
+    else:
+        # 纵向或正方：高度为基准，宽度按比例计算
+        height = base_size
+        width = int(base_size * (w_ratio / h_ratio))
+
+    return width, height
+
+
 def process_image_with_gemini(
     image_path: str,
     output_path: str,
@@ -221,6 +257,13 @@ def process_image_with_gemini(
                 # 确保输出目录存在
                 output_dir = Path(output_path).parent
                 output_dir.mkdir(parents=True, exist_ok=True)
+                
+                # 计算目标尺寸并调整
+                target_width, target_height = calculate_target_size(aspect_ratio, image_size)
+                
+                if image.size != (target_width, target_height):
+                    logger.info(f"调整图片尺寸: {image.size} -> ({target_width}, {target_height}) (Resampling: LANCZOS)")
+                    image = image.resize((target_width, target_height), Image.Resampling.LANCZOS)
                 
                 image.save(output_path)
                 result_path = output_path
