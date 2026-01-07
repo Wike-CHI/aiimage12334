@@ -52,9 +52,11 @@ const Index = () => {
   const { cacheTaskImage } = useTaskImageCache();
   const navigate = useNavigate();
 
-  // V2 同步图片生成 Hook
+  // V2 图片生成 Hook（包含同步和异步方法）
   const {
     processImage,
+    processImageAsync,
+    pollTaskStatus,
     isProcessing,
     elapsedTime,
     templates,
@@ -108,59 +110,41 @@ const Index = () => {
       const blob = await response.blob();
       const file = new File([blob], "image.png", { type: "image/png" });
 
-      // V2 同步处理，直接等待结果
+      // V2 异步任务：立即提交，后台处理
       toast({
-        title: "处理中",
-        description: "正在生成白底图，请稍候...",
+        title: "任务已创建",
+        description: "正在后台生成白底图，可继续上传其他图片",
       });
 
-      // 传递宽高比和分辨率到后端API
-      const result = await processImage(file, ratio, resolution);
+      // 提交异步任务，获取任务ID
+      const taskId = await processImageAsync(file, ratio, resolution);
 
-      if (result.success && result.result_image) {
-        // 直接使用 Base64 图片数据
-        const imageUrl = `data:image/png;base64,${result.result_image}`;
-        setProcessedImage(imageUrl);
+      // 启动轮询任务状态
+      pollTaskStatus(
+        // 任务完成回调
+        async (result) => {
+          // 刷新任务历史，显示新完成的任务
+          await refetchTasks();
 
-        // 缓存处理后的图片（使用时间戳作为ID）
-        const cacheId = Date.now();
-        const cacheKey = `v2_${cacheId}`;
-        // 将分辨率转换为像素值用于缓存
-        const resolutionMap: Record<string, number> = {
-          "1K": 1024,
-          "2K": 2048,
-          "4K": 4096
-        };
-        const pixelResolution = resolutionMap[resolution] || 1024;
+          // 从刚刷新后的 tasks 中查找刚完成的任务
+          const completedTask = tasks.find((t: { id: number }) => t.id === taskId);
+          if (completedTask?.result_image_url) {
+            setProcessedImage(completedTask.result_image_url);
 
-        // 将 Base64 转换为 Blob 用于缓存
-        const byteCharacters = atob(result.result_image);
-        const byteNumbers = new Array(byteCharacters.length);
-        for (let i = 0; i < byteCharacters.length; i++) {
-          byteNumbers[i] = byteCharacters.charCodeAt(i);
+            // 自动下载图片
+            const link = document.createElement("a");
+            link.href = completedTask.result_image_url;
+            link.download = `white-bg-${taskId}.png`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+          }
+        },
+        // 任务失败回调
+        (error) => {
+          console.error("任务失败:", error);
         }
-        const byteArray = new Uint8Array(byteNumbers);
-        const blob = new Blob([byteArray], { type: 'image/png' });
-
-        await cacheTaskImage(cacheId, blob, pixelResolution, pixelResolution);
-        setProcessedCacheKey(cacheKey);
-
-        // 刷新任务历史
-        refetchTasks();
-
-        // 自动下载图片到用户电脑
-        const link = document.createElement("a");
-        link.href = imageUrl;
-        link.download = `white-bg-${result.task_id || Date.now()}.png`;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-
-        toast({
-          title: "生成成功",
-          description: "图片已自动下载",
-        });
-      }
+      );
     } catch (error) {
       console.error("Error generating white background:", error);
       toast({
@@ -169,7 +153,7 @@ const Index = () => {
         variant: "destructive",
       });
     }
-  }, [originalImage, toast, user, navigate, ratio, resolution, processImage, refetchTasks, cacheTaskImage]);
+  }, [originalImage, toast, user, navigate, ratio, resolution, processImageAsync, pollTaskStatus, refetchTasks, tasks]);
 
   const handleClear = useCallback(() => {
     setOriginalImage(null);

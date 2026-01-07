@@ -1,12 +1,14 @@
 """
 V2 图片生成路由
-提供服饰图生图的同步处理接口，支持提示词模板链管理
+提供服饰图生图的同步/异步处理接口，支持提示词模板链管理
 """
 import os
 import uuid
 import aiofiles
+import asyncio
 import logging
 from typing import Optional, List
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, status, Query, Form
 from pydantic import BaseModel, Field
@@ -601,5 +603,246 @@ def get_v2_task_detail(
         width=task.width,
         height=task.height,
         created_at=task.created_at.isoformat() if task.created_at else "",
+    )
+
+
+# ============ 异步任务模型 ============
+
+class AsyncTaskResponse(BaseModel):
+    """异步任务创建响应"""
+    task_id: int
+    status: str
+    message: str
+
+
+class TaskStatusResponse(BaseModel):
+    """任务状态查询响应"""
+    task_id: int
+    status: str
+    result_image_url: Optional[str] = None
+    elapsed_time: Optional[float] = None
+    error_message: Optional[str] = None
+
+
+# ============ 后台任务处理 ============
+
+async def process_task_background(
+    task_id: int,
+    original_path: str,
+    result_path: str,
+    template_ids: List[str],
+    custom_prompt: Optional[str],
+    timeout_seconds: int,
+    aspect_ratio: str,
+    image_size: str,
+    db_session: Session
+):
+    """
+    后台处理任务
+    """
+    from app.services.prompt_template import get_prompt_manager
+    from app.config import get_settings
+    from app.auth import get_user_by_id
+
+    settings = get_settings()
+    backend_url = f"http://{settings.BACKEND_HOST}:{settings.BACKEND_PORT}"
+
+    try:
+        # 更新状态为 PROCESSING
+        task = db_session.query(GenerationTask).filter(GenerationTask.id == task_id).first()
+        if task:
+            task.status = TaskStatus.PROCESSING
+            db_session.commit()
+
+        logger.info(f"后台任务开始处理: task_id={task_id}")
+
+        # 执行图片处理
+        result = process_image_with_gemini(
+            image_path=original_path,
+            output_path=result_path,
+            template_ids=template_ids,
+            custom_prompt=custom_prompt,
+            timeout_seconds=timeout_seconds,
+            aspect_ratio=aspect_ratio,
+            image_size=image_size
+        )
+
+        # 更新任务状态为 COMPLETED
+        if task:
+            task.status = TaskStatus.COMPLETED
+            task.result_image_url = result_path
+            task.elapsed_time = result.get("elapsed_time")
+            db_session.commit()
+
+        logger.info(f"后台任务完成: task_id={task_id}")
+
+    except Exception as e:
+        error_msg = str(e)
+        logger.error(f"后台任务失败: task_id={task_id}, error={error_msg}", exc_info=True)
+
+        # 更新任务状态为 FAILED
+        task = db_session.query(GenerationTask).filter(GenerationTask.id == task_id).first()
+        if task:
+            task.status = TaskStatus.FAILED
+            task.error_message = error_msg
+            db_session.commit()
+
+
+# ============ 异步任务 API ============
+
+@router.post("/tasks/async", response_model=AsyncTaskResponse)
+async def create_async_task(
+    file: UploadFile = File(...),
+    template_ids: Optional[str] = Form('["remove_bg", "standardize", "ecommerce", "color_correct"]'),
+    custom_prompt: Optional[str] = Form(None),
+    timeout_seconds: int = Form(180),
+    aspect_ratio: str = Form("1:1"),
+    image_size: str = Form("1K"),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    创建异步任务（立即返回，后台处理）
+
+    上传图片后立即创建任务并返回任务ID，后台异步处理生成白底图。
+
+    - 需要用户认证
+    - 支持的最大图片大小: 10MB
+    - 支持的图片格式: JPEG, PNG, WebP, TIFF
+    - 返回任务ID后可轮询 /api/v2/tasks/{task_id}/status 获取状态
+    """
+    import json
+
+    # 解析模板ID列表
+    try:
+        parsed_template_ids = json.loads(template_ids) if template_ids else ["remove_bg", "standardize", "ecommerce", "color_correct"]
+    except json.JSONDecodeError:
+        parsed_template_ids = ["remove_bg", "standardize", "ecommerce", "color_correct"]
+
+    # 验证文件类型
+    allowed_types = {'image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/tiff', 'image/tif', 'image/heic', 'image/heif'}
+    content_type = file.content_type or ''
+
+    if content_type not in allowed_types:
+        filename = file.filename or ''
+        ext = filename.lower().split('.')[-1] if '.' in filename else ''
+        image_extensions = {'jpg', 'jpeg', 'png', 'webp', 'tiff', 'tif', 'heic', 'heif'}
+        if ext not in image_extensions:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"不支持的文件类型: {content_type}。请上传 JPG、PNG、WebP 或 TIFF 格式的图片"
+            )
+
+    # 获取文件扩展名
+    ext = os.path.splitext(file.filename or '.jpg')[1] or '.jpg'
+
+    # 创建数据库任务记录（状态为 PENDING）
+    db_task = GenerationTask(
+        user_id=current_user.id,
+        original_image_url="",
+        result_image_url=None,
+        status=TaskStatus.PENDING,
+        credits_used=1,
+        width=1024,
+        height=1024,
+        error_message=None
+    )
+    db.add(db_task)
+    db.commit()
+    db.refresh(db_task)
+    task_id = db_task.id
+
+    logger.info(f"创建异步任务: task_id={task_id}")
+
+    # 使用任务ID生成文件名
+    original_filename = f"{task_id}_original{ext}"
+    result_filename = f"{task_id}_result.png"
+
+    original_path = os.path.join(UPLOAD_DIR, original_filename)
+    result_path = os.path.join(RESULT_DIR, result_filename)
+
+    # 更新数据库中的路径
+    db_task.original_image_url = original_path
+    db.commit()
+
+    try:
+        # 保存上传的文件
+        async with aiofiles.open(original_path, "wb") as f:
+            content = await file.read()
+            if len(content) > 10 * 1024 * 1024:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="文件过大，最大支持10MB"
+                )
+            await f.write(content)
+
+        # 启动后台任务
+        asyncio.create_task(
+            process_task_background(
+                task_id=task_id,
+                original_path=original_path,
+                result_path=result_path,
+                template_ids=parsed_template_ids,
+                custom_prompt=custom_prompt,
+                timeout_seconds=timeout_seconds,
+                aspect_ratio=aspect_ratio,
+                image_size=image_size,
+                db_session=db
+            )
+        )
+
+        logger.info(f"异步任务已启动: task_id={task_id}")
+
+        return AsyncTaskResponse(
+            task_id=task_id,
+            status="pending",
+            message="任务已创建，正在后台处理"
+        )
+
+    except HTTPException:
+        db_task.status = TaskStatus.FAILED
+        db_task.error_message = "文件验证失败"
+        db.commit()
+        raise
+    except Exception as e:
+        db_task.status = TaskStatus.FAILED
+        db_task.error_message = str(e)
+        db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"创建任务失败: {str(e)}"
+        )
+
+
+@router.get("/tasks/{task_id}/status", response_model=TaskStatusResponse)
+def get_task_status(
+    task_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    获取任务状态（轮询接口）
+
+    - 需要用户认证
+    - 只能查询自己的任务
+    - 返回任务当前状态和结果（如果已完成）
+    """
+    task = db.query(GenerationTask).filter(
+        GenerationTask.id == task_id,
+        GenerationTask.user_id == current_user.id
+    ).first()
+
+    if not task:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="任务不存在"
+        )
+
+    return TaskStatusResponse(
+        task_id=task.id,
+        status=task.status.value if hasattr(task.status, 'value') else task.status,
+        result_image_url=make_image_url(task.result_image_url) if task.result_image_url else None,
+        elapsed_time=task.elapsed_time,
+        error_message=task.error_message
     )
 

@@ -1,15 +1,23 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { generationV2API } from '@/integrations/api/client';
 import { useAuth } from './useAuth';
 import { useToast } from './use-toast';
 
 interface ProcessResult {
   success: boolean;
-  task_id: number | null;  // 数据库任务ID
-  result_image: string | null;  // Base64 编码的图片数据
+  task_id: number | null;
+  result_image: string | null;
   elapsed_time: number | null;
   used_templates: string[] | null;
   error_message?: string;
+}
+
+interface TaskStatus {
+  task_id: number;
+  status: string;
+  result_image_url: string | null;
+  elapsed_time: number | null;
+  error_message: string | null;
 }
 
 interface TemplateInfo {
@@ -38,6 +46,8 @@ interface UseImageGenerationV2Options {
 
 interface UseImageGenerationV2Return {
   processImage: (file: File, aspectRatio?: string, imageSize?: string) => Promise<ProcessResult>;
+  processImageAsync: (file: File, aspectRatio?: string, imageSize?: string) => Promise<number>;
+  pollTaskStatus: (taskId: number, onComplete: (result: ProcessResult) => void, onError?: (error: string) => void) => void;
   isProcessing: boolean;
   elapsedTime: number | null;
   templates: TemplateInfo[];
@@ -56,7 +66,8 @@ export function useImageGenerationV2(
   const [templates, setTemplates] = useState<TemplateInfo[]>([]);
   const [chains, setChains] = useState<ChainInfo[]>([]);
   const [isLoadingTemplates, setIsLoadingTemplates] = useState(false);
-  
+  const [activePollingTasks, setActivePollingTasks] = useState<Set<number>>(new Set());
+
   const { user, refreshProfile } = useAuth();
   const { toast } = useToast();
 
@@ -83,6 +94,16 @@ export function useImageGenerationV2(
     }
   }, []);
 
+  // 清理轮询任务
+  useEffect(() => {
+    return () => {
+      activePollingTasks.forEach(taskId => {
+        // 清理逻辑由组件自己管理
+      });
+    };
+  }, [activePollingTasks]);
+
+  // 同步处理（保持原有逻辑）
   const processImage = useCallback(async (file: File, aspectRatio?: string, imageSize?: string): Promise<ProcessResult> => {
     if (!user) {
       const errorMsg = '请先登录';
@@ -117,7 +138,6 @@ export function useImageGenerationV2(
       const data = result.data;
 
       if (data.success) {
-        // Refresh user profile to update credits
         await refreshProfile();
 
         toast({
@@ -135,7 +155,7 @@ export function useImageGenerationV2(
       } else {
         const errorMsg = data.error_message || '处理失败';
         setError(errorMsg);
-        
+
         toast({
           title: '生成失败',
           description: errorMsg,
@@ -154,7 +174,7 @@ export function useImageGenerationV2(
     } catch (err) {
       const elapsed = (Date.now() - startTime) / 1000;
       setElapsedTime(elapsed);
-      
+
       const errorMsg = err instanceof Error ? err.message : '处理失败，请稍后重试';
       setError(errorMsg);
 
@@ -177,8 +197,131 @@ export function useImageGenerationV2(
     }
   }, [user, refreshProfile, defaultTemplateIds, options.customPrompt, options.timeoutSeconds, toast]);
 
+  // 异步提交任务
+  const processImageAsync = useCallback(async (file: File, aspectRatio?: string, imageSize?: string): Promise<number> => {
+    if (!user) {
+      throw new Error('请先登录');
+    }
+
+    if (user.credits < 1) {
+      throw new Error('积分不足');
+    }
+
+    const result = await generationV2API.submitAsync(file, {
+      templateIds: defaultTemplateIds,
+      customPrompt: options.customPrompt,
+      timeoutSeconds: options.timeoutSeconds || 180,
+      aspectRatio: aspectRatio || options.aspectRatio || '1:1',
+      imageSize: imageSize || options.imageSize || '1K',
+    });
+
+    if (result.data.task_id) {
+      await refreshProfile();
+      return result.data.task_id;
+    }
+
+    throw new Error('创建任务失败');
+  }, [user, refreshProfile, defaultTemplateIds, options.customPrompt, options.timeoutSeconds]);
+
+  // 轮询任务状态
+  const pollTaskStatus = useCallback((taskId: number, onComplete: (result: ProcessResult) => void, onError?: (error: string) => void) => {
+    setActivePollingTasks(prev => new Set(prev).add(taskId));
+
+    const poll = async () => {
+      let attempts = 0;
+      const maxAttempts = 300; // 最多轮询 5 分钟 (300 * 1s)
+
+      const check = async () => {
+        try {
+          const response = await generationV2API.getTaskStatus(taskId);
+          const status: TaskStatus = response.data;
+
+          if (status.status === 'COMPLETED') {
+            // 任务完成
+            await refreshProfile();
+            toast({
+              title: '生成成功',
+              description: `白底图已生成，耗时 ${status.elapsed_time?.toFixed(1) || 0} 秒`,
+            });
+
+            onComplete({
+              success: true,
+              task_id: taskId,
+              result_image: null, // 已保存到数据库，前端从历史记录获取
+              elapsed_time: status.elapsed_time,
+              used_templates: null,
+            });
+
+            setActivePollingTasks(prev => {
+              const next = new Set(prev);
+              next.delete(taskId);
+              return next;
+            });
+            return true;
+          } else if (status.status === 'FAILED') {
+            // 任务失败
+            const errorMsg = status.error_message || '处理失败';
+            setError(errorMsg);
+
+            toast({
+              title: '生成失败',
+              description: errorMsg,
+              variant: 'destructive',
+            });
+
+            onError?.(errorMsg);
+
+            setActivePollingTasks(prev => {
+              const next = new Set(prev);
+              next.delete(taskId);
+              return next;
+            });
+            return true;
+          } else {
+            // 仍在处理中，继续轮询
+            attempts++;
+            if (attempts >= maxAttempts) {
+              onError?.('轮询超时，请稍后查看历史记录');
+              setActivePollingTasks(prev => {
+                const next = new Set(prev);
+                next.delete(taskId);
+                return next;
+              });
+              return true;
+            }
+            return false;
+          }
+        } catch (err) {
+          console.error('轮询任务状态失败:', err);
+          attempts++;
+          if (attempts >= maxAttempts) {
+            onError?.('获取状态失败');
+            setActivePollingTasks(prev => {
+              const next = new Set(prev);
+              next.delete(taskId);
+              return next;
+            });
+            return true;
+          }
+          return false;
+        }
+      };
+
+      // 轮询间隔 1 秒
+      while (true) {
+        const done = await check();
+        if (done) break;
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+    };
+
+    poll();
+  }, [refreshProfile, toast]);
+
   return {
     processImage,
+    processImageAsync,
+    pollTaskStatus,
     isProcessing,
     elapsedTime,
     templates,
@@ -188,4 +331,3 @@ export function useImageGenerationV2(
     error,
   };
 }
-

@@ -200,4 +200,51 @@ export const generationV2API = {
    * @returns Promise with task detail
    */
   getTaskDetail: (taskId: number) => api.get(`/api/v2/tasks/${taskId}`),
+
+  /**
+   * 创建异步任务（立即返回，后台处理）
+   * @param file - 图片文件
+   * @param options - 处理选项
+   * @returns Promise with task_id
+   */
+  submitAsync: (
+    file: File,
+    options?: {
+      templateIds?: string[];
+      customPrompt?: string;
+      timeoutSeconds?: number;
+      aspectRatio?: string;
+      imageSize?: string;
+    }
+  ) => {
+    const formData = new FormData();
+    formData.append('file', file);
+
+    if (options?.templateIds) {
+      formData.append('template_ids', JSON.stringify(options.templateIds));
+    }
+    if (options?.customPrompt) {
+      formData.append('custom_prompt', options.customPrompt);
+    }
+    if (options?.timeoutSeconds) {
+      formData.append('timeout_seconds', options.timeoutSeconds.toString());
+    }
+    if (options?.aspectRatio) {
+      formData.append('aspect_ratio', options.aspectRatio);
+    }
+    if (options?.imageSize) {
+      formData.append('image_size', options.imageSize);
+    }
+
+    return api.post('/api/v2/tasks/async', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+  },
+
+  /**
+   * 获取任务状态（轮询接口）
+   * @param taskId - 任务ID
+   * @returns Promise with task status
+   */
+  getTaskStatus: (taskId: number) => api.get(`/api/v2/tasks/${taskId}/status`),
 };
