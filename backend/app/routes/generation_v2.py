@@ -45,6 +45,8 @@ def make_image_url(path: str) -> str:
     Returns:
         完整的 URL，如 "http://localhost:8001/uploads/1_original.png"
     """
+    from app.config import get_settings
+
     if not path:
         return ""
 
@@ -53,6 +55,7 @@ def make_image_url(path: str) -> str:
         return path
 
     # 从配置获取后端地址
+    settings = get_settings()
     backend_url = f"http://{settings.BACKEND_HOST}:{settings.BACKEND_PORT}"
 
     # 确保路径以 / 开头
