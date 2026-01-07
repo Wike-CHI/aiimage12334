@@ -3,6 +3,7 @@ V2 图片生成服务
 基于 Gemini API 的服饰图生图功能，支持提示词模板链拼接
 """
 import base64
+import io
 import logging
 import time
 from pathlib import Path
@@ -253,11 +254,14 @@ def process_image_with_gemini(
         for part in response.parts:
             if part.text:
                 logger.info(f"API返回文本: {part.text[:100]}...")
-            elif image := part.as_image():
+            elif gemini_image := part.as_image():
+                # 将 GenAI Image 转换为 PIL Image
+                image = Image.open(io.BytesIO(gemini_image.data))
+
                 # 确保输出目录存在
                 output_dir = Path(output_path).parent
                 output_dir.mkdir(parents=True, exist_ok=True)
-                
+
                 # 计算目标尺寸并调整
                 target_width, target_height = calculate_target_size(aspect_ratio, image_size)
                 
