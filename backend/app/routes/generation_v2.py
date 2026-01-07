@@ -854,7 +854,7 @@ def get_task_status(
         task_id=task.id,
         status=task.status.value if hasattr(task.status, 'value') else task.status,
         result_image_url=make_image_url(task.result_image_url) if task.result_image_url else None,
-        elapsed_time=task.elapsed_time,
+        elapsed_time=getattr(task, 'elapsed_time', None),
         estimated_remaining_seconds=estimated_remaining,
         error_message=task.error_message
     )

@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, Text, ForeignKey, Enum
+from sqlalchemy import Column, Integer, String, DateTime, Text, ForeignKey, Enum, Float
 from sqlalchemy.sql import func
 from enum import Enum as PyEnum
 from app.database import Base
@@ -36,6 +36,7 @@ class GenerationTask(Base):
     credits_used = Column(Integer, default=1)
     width = Column(Integer, default=1024)
     height = Column(Integer, default=1024)
+    elapsed_time = Column(Float, nullable=True)  # 处理耗时（秒）
     error_message = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
