@@ -640,13 +640,6 @@ async def process_task_background(
     """
     后台处理任务
     """
-    from app.services.prompt_template import get_prompt_manager
-    from app.config import get_settings
-    from app.auth import get_user_by_id
-
-    settings = get_settings()
-    backend_url = f"http://{settings.BACKEND_HOST}:{settings.BACKEND_PORT}"
-
     try:
         # 更新状态为 PROCESSING
         task = db_session.query(GenerationTask).filter(GenerationTask.id == task_id).first()

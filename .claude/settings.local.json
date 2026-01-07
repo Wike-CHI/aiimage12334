@@ -16,7 +16,8 @@
       "Bash(d:gsxmaiimage12334backend.venvScriptspython.exe -m pip install pytest pytest-cov pytest-asyncio Pillow -q)",
       "Bash(powershell -Command:*)",
       "Bash(pytest:*)",
-      "Bash(npm run build)"
+      "Bash(npm run build)",
+      "Bash(npx tsc:*)"
     ]
   }
 }

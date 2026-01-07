@@ -217,7 +217,7 @@ export function useImageGenerationV2(
 
     if (result.data.task_id) {
       await refreshProfile();
-      return result.data.task_id;
+      return Number(result.data.task_id);
     }
 
     throw new Error('创建任务失败');
@@ -225,7 +225,16 @@ export function useImageGenerationV2(
 
   // 轮询任务状态
   const pollTaskStatus = useCallback((taskId: number, onComplete: (result: ProcessResult) => void, onError?: (error: string) => void) => {
-    setActivePollingTasks(prev => new Set(prev).add(taskId));
+    // 确保 taskId 是有效的数字
+    const numericTaskId = Number(taskId);
+    if (isNaN(numericTaskId) || !isFinite(numericTaskId)) {
+      console.error('Invalid taskId:', taskId);
+      onError?.('无效的任务ID');
+      return;
+    }
+
+    console.log('Starting to poll task status:', numericTaskId);
+    setActivePollingTasks(prev => new Set(prev).add(numericTaskId));
 
     const poll = async () => {
       let attempts = 0;
@@ -233,7 +242,7 @@ export function useImageGenerationV2(
 
       const check = async () => {
         try {
-          const response = await generationV2API.getTaskStatus(taskId);
+          const response = await generationV2API.getTaskStatus(numericTaskId);
           const status: TaskStatus = response.data;
 
           if (status.status === 'COMPLETED') {
@@ -246,7 +255,7 @@ export function useImageGenerationV2(
 
             onComplete({
               success: true,
-              task_id: taskId,
+              task_id: numericTaskId,
               result_image: null, // 已保存到数据库，前端从历史记录获取
               elapsed_time: status.elapsed_time,
               used_templates: null,
@@ -254,7 +263,7 @@ export function useImageGenerationV2(
 
             setActivePollingTasks(prev => {
               const next = new Set(prev);
-              next.delete(taskId);
+              next.delete(numericTaskId);
               return next;
             });
             return true;
@@ -273,7 +282,7 @@ export function useImageGenerationV2(
 
             setActivePollingTasks(prev => {
               const next = new Set(prev);
-              next.delete(taskId);
+              next.delete(numericTaskId);
               return next;
             });
             return true;
@@ -284,7 +293,7 @@ export function useImageGenerationV2(
               onError?.('轮询超时，请稍后查看历史记录');
               setActivePollingTasks(prev => {
                 const next = new Set(prev);
-                next.delete(taskId);
+                next.delete(numericTaskId);
                 return next;
               });
               return true;
@@ -298,7 +307,7 @@ export function useImageGenerationV2(
             onError?.('获取状态失败');
             setActivePollingTasks(prev => {
               const next = new Set(prev);
-              next.delete(taskId);
+              next.delete(numericTaskId);
               return next;
             });
             return true;

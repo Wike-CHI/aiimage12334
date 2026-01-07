@@ -246,5 +246,8 @@ export const generationV2API = {
    * @param taskId - 任务ID
    * @returns Promise with task status
    */
-  getTaskStatus: (taskId: number) => api.get(`/api/v2/tasks/${taskId}/status`),
+  getTaskStatus: (taskId: number | string) => {
+    const numericId = typeof taskId === 'string' ? parseInt(taskId, 10) : taskId;
+    return api.get(`/api/v2/tasks/${numericId}/status`);
+  },
 };
