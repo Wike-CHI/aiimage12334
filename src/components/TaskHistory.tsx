@@ -175,7 +175,7 @@ export function TaskHistory({ tasks, onRefresh, onSelect }: TaskHistoryProps) {
         <Clock className="w-12 h-12 mx-auto mb-4 opacity-50" />
         <p>暂无历史记录</p>
         <p className="text-sm mt-1">生成白底图后将在这里显示</p>
-        <p className="text-xs mt-2 text-amber-500">使用 V2 同步接口，生成完成后直接返回结果</p>
+        <p className="text-xs mt-2 text-amber-500">使用 V2 异步接口，生成完成后自动刷新</p>
       </div>
     );
   }
@@ -218,6 +218,13 @@ export function TaskHistory({ tasks, onRefresh, onSelect }: TaskHistoryProps) {
                       src={task.original_image_url}
                       alt="Original"
                       className="w-full h-full object-cover"
+                      onError={(e) => {
+                        e.currentTarget.style.display = 'none';
+                        e.currentTarget.parentElement?.insertAdjacentHTML(
+                          'afterbegin',
+                          '<div class="w-full h-full flex items-center justify-center text-muted-foreground"><Eye class="w-5 h-5" /></div>'
+                        );
+                      }}
                     />
                   ) : (
                     <div className="w-full h-full flex items-center justify-center text-muted-foreground">
@@ -251,6 +258,13 @@ export function TaskHistory({ tasks, onRefresh, onSelect }: TaskHistoryProps) {
                       src={task.result_image_url}
                       alt="Processed"
                       className="w-full h-full object-cover"
+                      onError={(e) => {
+                        e.currentTarget.style.display = 'none';
+                        e.currentTarget.parentElement?.insertAdjacentHTML(
+                          'afterbegin',
+                          '<div class="w-full h-full flex items-center justify-center text-muted-foreground"><Eye class="w-5 h-5" /></div>'
+                        );
+                      }}
                     />
                   </div>
                 )}
@@ -316,7 +330,7 @@ export function TaskHistory({ tasks, onRefresh, onSelect }: TaskHistoryProps) {
       {/* V2 Info Banner */}
       <div className="mt-4 p-3 rounded-lg bg-blue-50 border border-blue-200">
         <p className="text-xs text-blue-600 text-center">
-          提示: 新生成的白底图将直接返回结果，无需等待轮询
+          提示: 新生成的白底图将自动刷新，无需手动刷新
         </p>
       </div>
 
@@ -359,6 +373,9 @@ export function TaskHistory({ tasks, onRefresh, onSelect }: TaskHistoryProps) {
                   src={previewImage.src}
                   alt={previewImage.title}
                   className="max-w-full max-h-[75vh] object-contain rounded-lg"
+                  onError={(e) => {
+                    e.currentTarget.style.display = 'none';
+                  }}
                 />
               )}
             </div>

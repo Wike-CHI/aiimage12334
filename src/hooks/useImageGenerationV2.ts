@@ -266,7 +266,7 @@ export function useImageGenerationV2(
             onComplete({
               success: true,
               task_id: numericTaskId,
-              result_image: null, // 已保存到数据库，前端从历史记录获取
+              result_image: status.result_image_url || null, // 从轮询结果获取图片URL
               elapsed_time: status.elapsed_time,
               used_templates: null,
             });

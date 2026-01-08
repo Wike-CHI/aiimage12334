@@ -41,11 +41,32 @@ npm run tauri build  # Build Tauri desktop app
 
 ### Core Stack
 - **React 18 + TypeScript** with Vite 5.x
-- **Tailwind CSS 3.4** with shadcn/ui component library (52+ components in `src/components/ui/`)
+- **Tailwind CSS 3.4** with shadcn/ui component library
 - **Python FastAPI** backend with MySQL database
-- **TanStack Query 5** for server state (`src/hooks/useTaskHistory.ts`)
+- **TanStack Query 5** for server state
 - **React Router 6** for routing
 - **Tauri 2.0** for cross-platform desktop app
+
+### Backend Structure
+
+```
+backend/
+├── app/
+│   ├── routes/           # API endpoints
+│   │   ├── auth.py       # Authentication (JWT)
+│   │   └── generation_v2.py  # V2 image processing API
+│   ├── services/         # Business logic
+│   │   ├── image_gen_v2.py   # V2 image processing pipeline
+│   │   ├── task_queue.py     # Background task queue
+│   │   └── prompt_template.py # AI prompt templates
+│   ├── models.py         # SQLAlchemy ORM models
+│   ├── schemas.py        # Pydantic schemas
+│   ├── auth.py           # JWT handling
+│   ├── config.py         # Environment configuration
+│   └── main.py           # FastAPI application
+├── init_db.py            # Database initialization
+└── migrate_*.py          # Database migrations
+```
 
 ### Path Alias
 `@` maps to `src/` (configured in `tsconfig.json` and `vite.config.ts`)

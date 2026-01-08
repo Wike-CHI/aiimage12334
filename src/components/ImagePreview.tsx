@@ -40,7 +40,7 @@ export function ImagePreview({
                 清除
               </Button>
             </div>
-            <div 
+            <div
               className="relative aspect-square rounded-xl overflow-hidden bg-secondary/50 border border-border group cursor-pointer"
               onClick={() => originalImage && setPreviewImage({ src: originalImage, title: "原图" })}
             >
@@ -50,6 +50,9 @@ export function ImagePreview({
                     src={originalImage}
                     alt="Original"
                     className="w-full h-full object-contain"
+                    onError={(e) => {
+                      e.currentTarget.style.display = 'none';
+                    }}
                   />
                   <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center">
                     <ZoomIn className="w-8 h-8 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
@@ -101,6 +104,9 @@ export function ImagePreview({
                     src={processedImage}
                     alt="Processed"
                     className="w-full h-full object-contain animate-scale-in"
+                    onError={(e) => {
+                      e.currentTarget.style.display = 'none';
+                    }}
                   />
                   <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center">
                     <ZoomIn className="w-8 h-8 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
@@ -152,6 +158,9 @@ export function ImagePreview({
                   src={previewImage.src}
                   alt={previewImage.title}
                   className="max-w-full max-h-[75vh] object-contain rounded-lg"
+                  onError={(e) => {
+                    e.currentTarget.style.display = 'none';
+                  }}
                 />
               )}
             </div>

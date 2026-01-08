@@ -137,14 +137,13 @@ const Index = () => {
           // 刷新任务历史，显示新完成的任务
           await refetchTasks();
 
-          // 从刚刷新后的 tasks 中查找刚完成的任务
-          const completedTask = tasks.find((t: { id: number }) => t.id === taskId);
-          if (completedTask?.result_image_url) {
-            setProcessedImage(completedTask.result_image_url);
+          // 直接使用回调中传递的 result_image（从轮询结果获取）
+          if (result.result_image) {
+            setProcessedImage(result.result_image);
 
             // 自动下载图片
             const link = document.createElement("a");
-            link.href = completedTask.result_image_url;
+            link.href = result.result_image;
             link.download = `white-bg-${taskId}.png`;
             document.body.appendChild(link);
             link.click();
@@ -437,7 +436,7 @@ const Index = () => {
       <footer className="border-t border-border/50 mt-auto">
         <div className="container max-w-5xl mx-auto px-4 py-6 text-center">
           <p className="text-sm text-muted-foreground">
-            Powered by Gemini 3 Pro Image - V2 同步接口
+            Powered by Gemini 3 Pro Image - V2 异步接口
           </p>
         </div>
       </footer>
