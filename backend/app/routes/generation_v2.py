@@ -325,6 +325,15 @@ async def process_upload(
     # 获取文件扩展名
     ext = os.path.splitext(file.filename or '.jpg')[1] or '.jpg'
     
+    # 检查用户积分是否足够
+    if current_user.credits < 1:
+        logger.warning(f"用户 {current_user.id} 积分不足: {current_user.credits}")
+        raise credits_insufficient_error()
+    
+    # 扣除积分
+    current_user.credits -= 1
+    logger.info(f"扣除用户 {current_user.id} 积分，剩余: {current_user.credits}")
+    
     # 创建数据库任务记录（先生成任务记录获取ID）
     db_task = GenerationTask(
         user_id=current_user.id,
@@ -833,6 +842,13 @@ async def process_task_background(
                 user_id = task.user_id  # 确保有 user_id 用于 WebSocket 推送
                 task.status = TaskStatus.FAILED
                 task.error_message = error_msg
+                
+                # 退还积分（任务失败时退还）
+                user = db_session_for_error.query(User).filter(User.id == user_id).first()
+                if user:
+                    user.credits += 1
+                    logger.info(f"任务失败，退还用户 {user_id} 积分，当前积分: {user.credits}")
+                
                 db_session_for_error.commit()
 
                 # WebSocket 推送任务失败
@@ -899,6 +915,15 @@ async def create_async_task(
 
     # 获取文件扩展名
     ext = os.path.splitext(file.filename or '.jpg')[1] or '.jpg'
+
+    # 检查用户积分是否足够
+    if current_user.credits < 1:
+        logger.warning(f"用户 {current_user.id} 积分不足: {current_user.credits}")
+        raise credits_insufficient_error()
+    
+    # 扣除积分
+    current_user.credits -= 1
+    logger.info(f"扣除用户 {current_user.id} 积分，剩余: {current_user.credits}")
 
     # 创建数据库任务记录（状态为 PENDING）
     db_task = GenerationTask(
