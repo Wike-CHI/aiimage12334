@@ -29,7 +29,9 @@
       "Bash(sudo cp:*)",
       "Bash(sudo nginx:*)",
       "Bash(sudo systemctl:*)",
-      "Bash(curl:*)"
+      "Bash(curl:*)",
+      "Bash(sudo firewall-cmd:*)",
+      "Bash(sudo iptables -L:*)"
     ]
   }
 }
