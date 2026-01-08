@@ -760,16 +760,20 @@ async def process_task_background(
         await update_progress(90, 5)
 
         # 更新任务状态为 COMPLETED
+        task = db_session.query(GenerationTask).filter(GenerationTask.id == task_id).first()
         if task:
             task.status = TaskStatus.COMPLETED
             task.result_image_url = result_path
             task.elapsed_time = result.get("elapsed_time")
+            # 保存 user_id 以便后续使用
+            if not user_id:
+                user_id = task.user_id
             db_session.commit()
 
             # WebSocket 推送任务完成
             result_url = make_image_url(result_path)
             await notify_task_progress(
-                user_id=task.user_id,
+                user_id=user_id,  # 使用保存的 user_id
                 task_id=task_id,
                 status="completed",
                 progress=100,
@@ -783,20 +787,28 @@ async def process_task_background(
         error_msg = str(e)
         logger.error(f"后台任务失败: task_id={task_id}, error={error_msg}", exc_info=True)
 
-        # 更新任务状态为 FAILED
-        task = db_session.query(GenerationTask).filter(GenerationTask.id == task_id).first()
-        if task:
-            task.status = TaskStatus.FAILED
-            task.error_message = error_msg
-            db_session.commit()
+        # 重新查询任务并更新状态为 FAILED
+        try:
+            task = db_session.query(GenerationTask).filter(GenerationTask.id == task_id).first()
+            if task:
+                # 保存 user_id 以便 WebSocket 推送
+                if not user_id:
+                    user_id = task.user_id
+                
+                task.status = TaskStatus.FAILED
+                task.error_message = error_msg
+                db_session.commit()
 
-            # WebSocket 推送任务失败
-            await notify_task_progress(
-                user_id=task.user_id,
-                task_id=task_id,
-                status="failed",
-                error_message=error_msg
-            )
+                # WebSocket 推送任务失败（使用保存的 user_id）
+                if user_id:
+                    await notify_task_progress(
+                        user_id=user_id,
+                        task_id=task_id,
+                        status="failed",
+                        error_message=error_msg
+                    )
+        except Exception as db_error:
+            logger.error(f"更新失败任务状态时出错: {db_error}", exc_info=True)
     finally:
         # 关闭 Session
         db_session.close()
