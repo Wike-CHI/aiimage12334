@@ -261,13 +261,8 @@ export function WebSocketProvider({ children }: { children: React.ReactNode }) {
 
   // 取消订阅
   const unsubscribe = useCallback((taskId: number) => {
-    const taskSubscribers = subscribersRef.current.get(taskId);
-    if (taskSubscribers) {
-      taskSubscribers.shift(); // 移除最早的订阅者
-      if (taskSubscribers.length === 0) {
-        subscribersRef.current.delete(taskId);
-      }
-    }
+    // 直接删除该任务的所有订阅者，而非只移除一个
+    subscribersRef.current.delete(taskId);
   }, []);
 
   // 取消所有订阅
