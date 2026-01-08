@@ -170,6 +170,12 @@ export function WebSocketProvider({ children }: { children: React.ReactNode }) {
 
       ws.onmessage = (event) => {
         try {
+          // 后端发送的 pong 是纯文本，需要先检查
+          if (event.data === 'pong') {
+            // 心跳响应，忽略
+            return;
+          }
+
           const message: WebSocketMessage = JSON.parse(event.data);
           setLastMessage(message);
 

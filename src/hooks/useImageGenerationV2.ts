@@ -52,7 +52,7 @@ interface UseImageGenerationV2Return {
   pollTaskStatus: (taskId: number, onComplete: (result: ProcessResult) => void, onError?: (error: string) => void) => void;
   listenTaskStatus: (taskId: number, callbacks: {
     onUpdate?: (data: TaskProgressData) => void;
-    onComplete: (data: TaskProgressData) => void;
+    onComplete: (data: TaskProgressData) => Promise<void>;
     onError?: (error: string) => void;
   }) => () => void;
   isProcessing: boolean;

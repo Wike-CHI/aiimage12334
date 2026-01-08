@@ -20,6 +20,7 @@ import { useTaskHistory } from "@/hooks/useTaskHistory";
 import { useUploadImageCache } from "@/hooks/useImageCache";
 import { useTaskImageCache } from "@/hooks/useImageCache";
 import { useImageGenerationV2 } from "@/hooks/useImageGenerationV2";
+import { TaskProgressData } from "@/context/WebSocketContext";
 import { GENERATION_CONFIG } from "@/config";
 
 // 使用后端API返回的配置生成下拉选项
@@ -66,7 +67,7 @@ const Index = () => {
   const {
     processImage,
     processImageAsync,
-    pollTaskStatus,
+    listenTaskStatus,
     isProcessing,
     elapsedTime,
     estimatedRemainingTime,
@@ -149,51 +150,70 @@ const Index = () => {
         { id: taskIdStr, status: "processing" as TaskStatus, name: "生成白底图", progress: 0 },
       ]);
 
-      // 启动轮询任务状态
-      pollTaskStatus(
-        taskId,
-        // 任务完成回调
-        async (result) => {
-          // 更新任务队列状态
-          setTaskQueue((prev) =>
-            prev.map((t) =>
-              t.id === taskIdStr ? { ...t, status: "completed" as TaskStatus, progress: 100 } : t
-            )
-          );
+      // 定义任务完成回调
+      const handleTaskComplete = async (data: TaskProgressData) => {
+        // 更新任务队列状态
+        setTaskQueue((prev) =>
+          prev.map((t) =>
+            t.id === taskIdStr ? { ...t, status: "completed" as TaskStatus, progress: 100 } : t
+          )
+        );
 
-          // 刷新任务历史，显示新完成的任务
-          await refetchTasks();
+        // 刷新任务历史，显示新完成的任务
+        await refetchTasks();
 
-          // 直接使用回调中传递的 result_image（从轮询结果获取）
-          if (result.result_image) {
-            setProcessedImage(result.result_image);
+        // 从 WebSocket 数据获取结果图片
+        if (data.result_image_url) {
+          setProcessedImage(data.result_image_url);
 
-            // 自动下载图片
-            const link = document.createElement("a");
-            link.href = result.result_image;
-            link.download = `white-bg-${taskId}.png`;
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
+          // 自动下载图片
+          const link = document.createElement("a");
+          link.href = data.result_image_url;
+          link.download = `white-bg-${taskId}.png`;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
 
-            toast({
-              title: "生成成功",
-              description: "图片已自动下载",
-            });
-          }
-        },
-        // 任务失败回调
-        (error: unknown) => {
-          console.error("任务失败:", error);
-          // 更新任务队列状态
-          setTaskQueue((prev) =>
-            prev.map((t) => (t.id === taskIdStr ? { ...t, status: "failed" as TaskStatus } : t))
-          );
-
-          setError({
-            type: "server",
-            message: error instanceof Error ? error.message : "处理失败，请稍后重试",
+          toast({
+            title: "生成成功",
+            description: "图片已自动下载",
           });
+        }
+      };
+
+      // 定义任务失败回调
+      const handleTaskFailed = (error: string) => {
+        console.error("任务失败:", error);
+        // 更新任务队列状态
+        setTaskQueue((prev) =>
+          prev.map((t) => (t.id === taskIdStr ? { ...t, status: "failed" as TaskStatus } : t))
+        );
+
+        setError({
+          type: "server",
+          message: error,
+        });
+      };
+
+      // 启动 WebSocket 监听任务状态
+      listenTaskStatus(
+        taskId,
+        {
+          // 任务进度更新
+          onUpdate: (data) => {
+            // 更新任务队列进度
+            setTaskQueue((prev) =>
+              prev.map((t) =>
+                t.id === taskIdStr
+                  ? { ...t, progress: data.progress ?? t.progress }
+                  : t
+              )
+            );
+          },
+          // 任务完成回调
+          onComplete: handleTaskComplete,
+          // 任务失败回调
+          onError: handleTaskFailed,
         }
       );
     } catch (error) {
@@ -208,7 +228,7 @@ const Index = () => {
         variant: "destructive",
       });
     }
-  }, [originalImage, toast, user, navigate, ratio, resolution, processImageAsync, pollTaskStatus, refetchTasks]);
+  }, [originalImage, toast, user, navigate, ratio, resolution, processImageAsync, listenTaskStatus, refetchTasks]);
 
   const handleClear = useCallback(() => {
     setOriginalImage(null);
