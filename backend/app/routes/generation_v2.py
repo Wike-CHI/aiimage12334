@@ -10,7 +10,7 @@ import logging
 from typing import Optional, List
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, status, Query, Form
+from fastapi import APIRouter, Depends, UploadFile, File, Query, Form
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -24,6 +24,17 @@ from app.services.image_gen_v2 import (
     get_template_chains,
     preview_prompt,
     ImageGenV2Error
+)
+from app.errors import (
+    AppException, ErrorCode,
+    credits_insufficient_error,
+    invalid_image_format_error,
+    image_too_large_error,
+    image_processing_failed_error,
+    task_not_found_error,
+    validation_error_error,
+    network_error_error,
+    internal_error_error
 )
 
 logger = logging.getLogger(__name__)
@@ -175,9 +186,9 @@ async def process_image(
     """
     # 检查图片路径
     if not request.image_path:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="需要提供 image_path 或上传图片文件"
+        raise validation_error_error(
+            message="需要提供 image_path 或上传图片文件",
+            details={"field": "image_path"}
         )
     
     # 生成输出路径
@@ -208,16 +219,10 @@ async def process_image(
         
     except ImageGenV2Error as e:
         logger.error(f"图片处理失败: {e.message}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=e.message
-        )
+        raise image_processing_failed_error(detail=e.message)
     except Exception as e:
         logger.error(f"图片处理异常: {str(e)}", exc_info=True)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"处理失败: {str(e)}"
-        )
+        raise internal_error_error(detail=f"图片处理失败: {str(e)}")
 
 
 @router.post("/process/upload", response_model=ProcessResponse)
@@ -278,10 +283,7 @@ async def process_upload(
             logger.info(f"基于扩展名 {ext} 接受文件")
         else:
             logger.warning(f"不支持的文件类型: {content_type}, 扩展名: {ext}")
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"不支持的文件类型: {content_type}。请上传 JPG、PNG、WebP 或 TIFF 格式的图片"
-            )
+            raise invalid_image_format_error(content_type=content_type)
     
     # 获取文件扩展名
     ext = os.path.splitext(file.filename or '.jpg')[1] or '.jpg'
@@ -323,10 +325,7 @@ async def process_upload(
             logger.info(f"文件读取完成，大小: {len(content)} 字节")
             # 检查文件大小（最大10MB）
             if len(content) > 10 * 1024 * 1024:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="文件过大，最大支持10MB"
-                )
+                raise image_too_large_error(size_mb=len(content) / (1024 * 1024), max_mb=10)
             await f.write(content)
         logger.info(f"文件保存完成: {original_path}")
         
@@ -356,7 +355,7 @@ async def process_upload(
             used_templates=result.get("used_templates")
         )
         
-    except HTTPException:
+    except AppException:
         db_task.status = TaskStatus.FAILED
         db_task.error_message = "文件验证失败"
         db.commit()
@@ -366,20 +365,14 @@ async def process_upload(
         db_task.status = TaskStatus.FAILED
         db_task.error_message = e.message
         db.commit()
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=e.message
-        )
+        raise image_processing_failed_error(detail=e.message)
     except Exception as e:
         error_msg = str(e)
         logger.error(f"图片处理异常: {error_msg}", exc_info=True)
         db_task.status = TaskStatus.FAILED
         db_task.error_message = error_msg
         db.commit()
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"处理失败: {error_msg}"
-        )
+        raise internal_error_error(detail=f"处理失败: {error_msg}")
 
 
 @router.get("/templates", response_model=List[TemplateInfo])
@@ -410,9 +403,9 @@ def get_template(
     template_info = prompt_manager.get_template_info(template_id)
     
     if not template_info:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"模板不存在: {template_id}"
+        raise validation_error_error(
+            message=f"模板不存在: {template_id}",
+            details={"template_id": template_id}
         )
     
     return TemplateInfo(**template_info)
@@ -515,6 +508,9 @@ class V2TaskHistoryItem(BaseModel):
     height: int
     created_at: str
     elapsed_time: Optional[float] = None
+    error_message: Optional[str] = None
+    error_code: Optional[str] = None
+    user_action: Optional[str] = None
 
 
 class V2TaskHistoryResponse(BaseModel):
@@ -566,6 +562,7 @@ def get_v2_task_history(
                 width=task.width,
                 height=task.height,
                 created_at=task.created_at.isoformat() if task.created_at else "",
+                error_message=task.error_message,
             )
             for task in tasks
         ],
@@ -589,12 +586,9 @@ def get_v2_task_detail(
         GenerationTask.id == task_id,
         GenerationTask.user_id == current_user.id
     ).first()
-    
+
     if not task:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="任务不存在"
-        )
+        raise task_not_found_error(task_id=task_id)
     
     return V2TaskHistoryItem(
         id=task.id,
@@ -606,6 +600,7 @@ def get_v2_task_detail(
         width=task.width,
         height=task.height,
         created_at=task.created_at.isoformat() if task.created_at else "",
+        error_message=task.error_message,
     )
 
 
@@ -726,10 +721,7 @@ async def create_async_task(
         ext = filename.lower().split('.')[-1] if '.' in filename else ''
         image_extensions = {'jpg', 'jpeg', 'png', 'webp', 'tiff', 'tif', 'heic', 'heif'}
         if ext not in image_extensions:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"不支持的文件类型: {content_type}。请上传 JPG、PNG、WebP 或 TIFF 格式的图片"
-            )
+            raise invalid_image_format_error(content_type=content_type)
 
     # 获取文件扩展名
     ext = os.path.splitext(file.filename or '.jpg')[1] or '.jpg'
@@ -768,10 +760,7 @@ async def create_async_task(
         async with aiofiles.open(original_path, "wb") as f:
             content = await file.read()
             if len(content) > 10 * 1024 * 1024:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="文件过大，最大支持10MB"
-                )
+                raise image_too_large_error(size_mb=len(content) / (1024 * 1024), max_mb=10)
             await f.write(content)
 
         # 启动后台任务
@@ -797,7 +786,7 @@ async def create_async_task(
             message="任务已创建，正在后台处理"
         )
 
-    except HTTPException:
+    except AppException:
         db_task.status = TaskStatus.FAILED
         db_task.error_message = "文件验证失败"
         db.commit()
@@ -806,10 +795,7 @@ async def create_async_task(
         db_task.status = TaskStatus.FAILED
         db_task.error_message = str(e)
         db.commit()
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"创建任务失败: {str(e)}"
-        )
+        raise internal_error_error(detail=f"创建任务失败: {str(e)}")
 
 
 @router.get("/tasks/{task_id}/status", response_model=TaskStatusResponse)
@@ -833,10 +819,7 @@ def get_task_status(
     ).first()
 
     if not task:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="任务不存在"
-        )
+        raise task_not_found_error(task_id=task_id)
 
     # 计算预估剩余时间
     estimated_remaining = None

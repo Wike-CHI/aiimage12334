@@ -1,10 +1,11 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { format } from "date-fns";
 import { zhCN } from "date-fns/locale";
-import { Download, Eye, Clock, CheckCircle, XCircle, ArrowLeft, Play, Trash2, Ban, RefreshCw } from "lucide-react";
+import { Download, Eye, Clock, CheckCircle, XCircle, ArrowLeft, Play, Trash2, Ban, RefreshCw, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { generationAPI, generationV2API } from "@/integrations/api/client";
 import { useToast } from "@/hooks/use-toast";
@@ -20,6 +21,8 @@ interface Task {
   width: number;
   height: number;
   error_message?: string | null;
+  error_code?: string | null;
+  user_action?: string | null;
   created_at: string;
 }
 
@@ -35,6 +38,49 @@ const statusConfig: Record<string, { icon: typeof Clock; label: string; color: s
   COMPLETED: { icon: CheckCircle, label: "已完成", color: "text-green-500" },
   FAILED: { icon: XCircle, label: "失败", color: "text-destructive" },
 };
+
+// 错误类型配置
+const errorTypeConfig: Record<string, { label: string; color: string; icon: string }> = {
+  CREDITS_INSUFFICIENT: { label: "积分不足", color: "bg-amber-100 text-amber-700 border-amber-300", icon: "💰" },
+  IMAGE_PROCESSING_FAILED: { label: "处理失败", color: "bg-red-100 text-red-700 border-red-300", icon: "🖼️" },
+  INVALID_IMAGE_FORMAT: { label: "格式错误", color: "bg-orange-100 text-orange-700 border-orange-300", icon: "📁" },
+  IMAGE_TOO_LARGE: { label: "文件过大", color: "bg-orange-100 text-orange-700 border-orange-300", icon: "📦" },
+  NETWORK_ERROR: { label: "网络错误", color: "bg-orange-100 text-orange-700 border-orange-300", icon: "🌐" },
+  API_TIMEOUT: { label: "超时", color: "bg-yellow-100 text-yellow-700 border-yellow-300", icon: "⏱️" },
+  INTERNAL_ERROR: { label: "服务器错误", color: "bg-red-100 text-red-700 border-red-300", icon: "⚙️" },
+  TASK_NOT_FOUND: { label: "任务丢失", color: "bg-gray-100 text-gray-700 border-gray-300", icon: "❓" },
+  UNKNOWN: { label: "处理失败", color: "bg-red-100 text-red-700 border-red-300", icon: "❌" },
+};
+
+function getErrorDisplay(error_code?: string | null) {
+  if (!error_code) return errorTypeConfig.UNKNOWN;
+  return errorTypeConfig[error_code] || errorTypeConfig.UNKNOWN;
+}
+
+// 解析错误消息，尝试提取错误码
+function parseErrorCode(error_message?: string | null): { code: string | null; message: string } {
+  if (!error_message) return { code: null, message: "未知错误" };
+
+  // 尝试匹配常见的错误码模式
+  const codePatterns = [
+    { pattern: /CREDITS_INSUFFICIENT/i, code: "CREDITS_INSUFFICIENT" },
+    { pattern: /IMAGE_PROCESSING_FAILED/i, code: "IMAGE_PROCESSING_FAILED" },
+    { pattern: /INVALID_IMAGE_FORMAT/i, code: "INVALID_IMAGE_FORMAT" },
+    { pattern: /IMAGE_TOO_LARGE/i, code: "IMAGE_TOO_LARGE" },
+    { pattern: /NETWORK_ERROR/i, code: "NETWORK_ERROR" },
+    { pattern: /API_TIMEOUT|TIMEOUT/i, code: "API_TIMEOUT" },
+    { pattern: /INTERNAL_ERROR/i, code: "INTERNAL_ERROR" },
+    { pattern: /TASK_NOT_FOUND/i, code: "TASK_NOT_FOUND" },
+  ];
+
+  for (const { pattern, code } of codePatterns) {
+    if (pattern.test(error_message)) {
+      return { code, message: error_message };
+    }
+  }
+
+  return { code: null, message: error_message };
+}
 
 export function TaskHistory({ tasks, onRefresh, onSelect }: TaskHistoryProps) {
   const [previewImage, setPreviewImage] = useState<{ src: string; title: string } | null>(null);
@@ -243,8 +289,44 @@ export function TaskHistory({ tasks, onRefresh, onSelect }: TaskHistoryProps) {
                     {format(new Date(task.created_at), "MM月dd日 HH:mm", { locale: zhCN })}
                   </p>
                   <p className="text-xs text-muted-foreground">{resolution}</p>
-                  {task.error_message && (
-                    <p className="text-xs text-destructive truncate">{task.error_message}</p>
+
+                  {/* 错误信息展示 */}
+                  {(task.error_message || isFailedTask(task.status)) && (
+                    <div className="mt-1.5">
+                      {/* 错误类型标签 */}
+                      {(task.error_code || isFailedTask(task.status)) && (() => {
+                        const errorDisplay = getErrorDisplay(task.error_code || null);
+                        const parsed = parseErrorCode(task.error_message);
+                        const errorCode = task.error_code || parsed.code;
+
+                        return (
+                          <div className="flex items-center gap-1.5 mb-1">
+                            <span className="text-xs">{errorDisplay.icon}</span>
+                            <Badge
+                              variant="outline"
+                              className={cn("text-xs px-1.5 py-0 h-5", errorDisplay.color)}
+                            >
+                              {errorDisplay.label}
+                            </Badge>
+                          </div>
+                        );
+                      })()}
+
+                      {/* 错误消息 */}
+                      {task.error_message && (
+                        <p className="text-xs text-destructive line-clamp-2" title={task.error_message}>
+                          {task.error_message}
+                        </p>
+                      )}
+
+                      {/* 用户操作建议 */}
+                      {task.user_action && (
+                        <p className="text-xs text-blue-600 dark:text-blue-400 mt-1 flex items-center gap-1">
+                          <AlertCircle className="w-3 h-3 flex-shrink-0" />
+                          <span>{task.user_action}</span>
+                        </p>
+                      )}
+                    </div>
                   )}
                 </div>
 

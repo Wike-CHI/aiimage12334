@@ -16,6 +16,7 @@ from app.routes import auth, generation, generation_v2
 from app.database import engine, Base
 from app.config import get_settings
 from app.services.task_queue import task_queue
+from app.errors import AppException, ErrorCode, internal_error_error
 
 settings = get_settings()
 
@@ -180,14 +181,31 @@ def metrics():
 
 
 # 异常处理
+@app.exception_handler(AppException)
+async def app_exception_handler(request, exc: AppException):
+    """AppException 异常处理器"""
+    return JSONResponse(
+        status_code=exc.status_code,
+        content=exc.to_dict()
+    )
+
+
 @app.exception_handler(Exception)
 async def global_exception_handler(request, exc):
-    """全局异常处理器"""
+    """全局异常处理器 - 处理未预期的异常"""
+    import traceback
+    import logging
+
+    # 记录错误日志
+    logging.error(f"Unhandled exception: {exc}")
+    logging.error(traceback.format_exc())
+
+    # 避免泄露敏感信息
+    error_msg = str(exc)
+    if "password" in error_msg.lower() or "secret" in error_msg.lower():
+        error_msg = "Internal server error"
+
     return JSONResponse(
         status_code=500,
-        content={
-            "success": False,
-            "error_code": "INTERNAL_ERROR",
-            "message": f"Internal server error: {str(exc)}"
-        }
+        content=internal_error_error(error_msg).to_dict()
     )

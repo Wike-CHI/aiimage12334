@@ -31,7 +31,9 @@
       "Bash(sudo systemctl:*)",
       "Bash(curl:*)",
       "Bash(sudo firewall-cmd:*)",
-      "Bash(sudo iptables -L:*)"
+      "Bash(sudo iptables -L:*)",
+      "Skill(ui-ux-pro-max)",
+      "Skill(ui-ux-pro-max:*)"
     ]
   }
 }
