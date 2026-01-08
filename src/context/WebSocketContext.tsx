@@ -82,14 +82,21 @@ export function WebSocketProvider({ children }: { children: React.ReactNode }) {
 
   // 发送消息给订阅者
   const notifySubscribers = useCallback((message: WebSocketMessage) => {
-    if (!message.task_id) return;
+    if (!message.task_id) {
+      console.log('[WebSocket] No task_id in message, skipping');
+      return;
+    }
 
     const taskId = message.task_id;
+    console.log('[WebSocket] notifySubscribers called for task:', taskId, 'type:', message.type);
+    console.log('[WebSocket] Current subscribers:', Array.from(subscribersRef.current.keys()));
 
     // 通知特定任务的订阅者
     const taskSubscribers = subscribersRef.current.get(taskId);
+    console.log('[WebSocket] Task subscribers for', taskId, ':', taskSubscribers?.length || 0);
     if (taskSubscribers) {
-      taskSubscribers.forEach(subscriber => {
+      taskSubscribers.forEach((subscriber, index) => {
+        console.log('[WebSocket] Calling subscriber', index, 'for task', taskId);
         switch (message.type) {
           case 'task_update':
             subscriber.callbacks.onUpdate?.(message.data, taskId);
@@ -106,8 +113,10 @@ export function WebSocketProvider({ children }: { children: React.ReactNode }) {
 
     // 通知全局订阅者 (taskId = 0 表示监听所有任务)
     const globalSubscribers = subscribersRef.current.get(0);
+    console.log('[WebSocket] Global subscribers:', globalSubscribers?.length || 0);
     if (globalSubscribers) {
-      globalSubscribers.forEach(subscriber => {
+      globalSubscribers.forEach((subscriber, index) => {
+        console.log('[WebSocket] Calling global subscriber', index);
         switch (message.type) {
           case 'task_update':
             subscriber.callbacks.onUpdate?.(message.data, taskId);
@@ -176,11 +185,15 @@ export function WebSocketProvider({ children }: { children: React.ReactNode }) {
             return;
           }
 
+          console.log('[WebSocket] Received raw message:', event.data);
           const message: WebSocketMessage = JSON.parse(event.data);
+          console.log('[WebSocket] Parsed message:', message);
+
           setLastMessage(message);
 
           // 只处理任务相关消息
           if (message.type === 'task_update' || message.type === 'task_complete' || message.type === 'task_failed') {
+            console.log('[WebSocket] Notifying subscribers for task:', message.task_id, 'type:', message.type);
             notifySubscribers(message);
           }
         } catch (e) {
@@ -248,13 +261,18 @@ export function WebSocketProvider({ children }: { children: React.ReactNode }) {
     onComplete?: TaskCompleteCallback;
     onFailed?: TaskFailedCallback;
   }) => {
+    console.log('[WebSocket] Subscribe called for task:', taskId);
     if (!subscribersRef.current.has(taskId)) {
       subscribersRef.current.set(taskId, []);
+      console.log('[WebSocket] Created new subscriber list for task:', taskId);
     }
-    subscribersRef.current.get(taskId)!.push({ taskId, callbacks });
+    const subscribers = subscribersRef.current.get(taskId)!;
+    subscribers.push({ taskId, callbacks });
+    console.log('[WebSocket] Total subscribers for task', taskId, ':', subscribers.length);
 
     // 返回取消订阅函数
     return () => {
+      console.log('[WebSocket] Unsubscribe called for task:', taskId);
       unsubscribe(taskId);
     };
   }, []);

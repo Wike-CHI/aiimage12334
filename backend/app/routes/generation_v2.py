@@ -712,6 +712,17 @@ async def process_task_background(
     """
     user_id = None
 
+    async def update_progress(progress: int, estimated_remaining: int = None):
+        """推送进度更新"""
+        if user_id:
+            await notify_task_progress(
+                user_id=user_id,
+                task_id=task_id,
+                status="processing",
+                progress=progress,
+                estimated_remaining=estimated_remaining
+            )
+
     try:
         # 更新状态为 PROCESSING
         task = db_session.query(GenerationTask).filter(GenerationTask.id == task_id).first()
@@ -721,18 +732,16 @@ async def process_task_background(
             db_session.commit()
 
             # WebSocket 推送任务开始处理
-            await notify_task_progress(
-                user_id=user_id,
-                task_id=task_id,
-                status="processing",
-                progress=0,
-                estimated_remaining=30
-            )
+            await update_progress(0, 30)
 
         logger.info(f"后台任务开始处理: task_id={task_id}")
 
-        # 执行图片处理
-        result = process_image_with_gemini(
+        # 推送 30% 进度
+        await update_progress(30, 20)
+
+        # 在线程池中执行图片处理（避免阻塞事件循环）
+        result = await asyncio.to_thread(
+            process_image_with_gemini,
             image_path=original_path,
             output_path=result_path,
             template_ids=template_ids,
@@ -741,6 +750,12 @@ async def process_task_background(
             aspect_ratio=aspect_ratio,
             image_size=image_size
         )
+
+        # 推送 60% 进度
+        await update_progress(60, 10)
+
+        # 推送 90% 进度
+        await update_progress(90, 5)
 
         # 更新任务状态为 COMPLETED
         if task:

@@ -56,6 +56,8 @@ const Index = () => {
   const [error, setError] = useState<{ type: string; message: string } | null>(null);
   // 任务队列状态
   const [taskQueue, setTaskQueue] = useState<Array<{ id: string; status: TaskStatus; name?: string; progress?: number }>>([]);
+  // WebSocket 订阅清理函数
+  const wsCleanupRef = useRef<(() => void) | null>(null);
   const { toast } = useToast();
   const { user } = useAuth();
   const { tasks, refetch: refetchTasks } = useTaskHistory();
@@ -195,8 +197,11 @@ const Index = () => {
         });
       };
 
+      // 清理之前的 WebSocket 订阅
+      wsCleanupRef.current?.();
+
       // 启动 WebSocket 监听任务状态
-      listenTaskStatus(
+      wsCleanupRef.current = listenTaskStatus(
         taskId,
         {
           // 任务进度更新
@@ -228,7 +233,7 @@ const Index = () => {
         variant: "destructive",
       });
     }
-  }, [originalImage, toast, user, navigate, ratio, resolution, processImageAsync, listenTaskStatus, refetchTasks]);
+  }, [originalImage, user, navigate, ratio, resolution, processImageAsync, listenTaskStatus]);
 
   const handleClear = useCallback(() => {
     setOriginalImage(null);
@@ -291,6 +296,13 @@ const Index = () => {
 
     setActiveTab("generate");
   }, [getCachedImage]);
+
+  // 组件卸载时清理 WebSocket 订阅
+  useEffect(() => {
+    return () => {
+      wsCleanupRef.current?.();
+    };
+  }, []);
 
   return (
     <div className="min-h-screen gradient-subtle">
