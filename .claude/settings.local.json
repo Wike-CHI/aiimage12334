@@ -38,7 +38,8 @@
       "Bash(nginx:*)",
       "Bash(systemctl reload:*)",
       "Bash(systemctl restart:*)",
-      "Bash(systemctl status:*)"
+      "Bash(systemctl status:*)",
+      "Bash(ss:*)"
     ]
   }
 }
