@@ -705,12 +705,14 @@ async def process_task_background(
     timeout_seconds: int,
     aspect_ratio: str,
     image_size: str,
-    db_session: Session
 ):
     """
     后台处理任务
+    注意：不接收 Session 参数，在函数内部创建新的 Session
     """
     user_id = None
+    # 创建新的独立 Session，避免使用已关闭的请求 Session
+    db_session = next(get_db())
 
     async def update_progress(progress: int, estimated_remaining: int = None):
         """推送进度更新"""
@@ -795,6 +797,9 @@ async def process_task_background(
                 status="failed",
                 error_message=error_msg
             )
+    finally:
+        # 关闭 Session
+        db_session.close()
 
 
 # ============ 异步任务 API ============
@@ -889,8 +894,7 @@ async def create_async_task(
                 custom_prompt=custom_prompt,
                 timeout_seconds=timeout_seconds,
                 aspect_ratio=aspect_ratio,
-                image_size=image_size,
-                db_session=db
+                image_size=image_size
             )
         )
 

@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from "react";
+import React, { useState, useCallback, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { Sparkles, History, Upload } from "lucide-react";
 import { ImageUploader } from "@/components/ImageUploader";
