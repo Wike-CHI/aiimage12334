@@ -772,7 +772,8 @@ async def process_task_background(
 
         logger.info(f"[PROCESS] [Task {task_id}] 后台任务开始处理")
 
-        # 推送 30% 进度
+        # 推送 30% 进度（等待一小段时间，让前端UI有时间更新）
+        await asyncio.sleep(0.5)  # 500ms延迟
         await update_progress(30, 20)
 
         # 在线程池中执行图片处理（避免阻塞事件循环）
@@ -789,10 +790,12 @@ async def process_task_background(
         )
         logger.info(f"[API_DONE] [Task {task_id}] process_image_with_gemini 完成, result={result}")
 
-        # 推送 60% 进度
+        # 推送 60% 进度（添加延迟）
+        await asyncio.sleep(0.3)  # 300ms延迟
         await update_progress(60, 10)
 
-        # 推送 90% 进度
+        # 推送 90% 进度（添加延迟）
+        await asyncio.sleep(0.3)  # 300ms延迟
         await update_progress(90, 5)
 
         # 更新任务状态为 COMPLETED

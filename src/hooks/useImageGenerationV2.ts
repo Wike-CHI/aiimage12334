@@ -209,6 +209,7 @@ export function useImageGenerationV2(
 
   // 异步提交任务
   const processImageAsync = useCallback(async (file: File, aspectRatio?: string, imageSize?: string): Promise<number> => {
+    console.log('[useImageGenerationV2] processImageAsync 开始');
     if (!user) {
       throw new Error('请先登录');
     }
@@ -226,6 +227,7 @@ export function useImageGenerationV2(
     });
 
     if (result.data.task_id) {
+      console.log('[useImageGenerationV2] 任务创建成功，task_id:', result.data.task_id);
       await refreshProfile();
       return Number(result.data.task_id);
     }
@@ -354,8 +356,10 @@ export function useImageGenerationV2(
     onComplete: (data: TaskProgressData) => void;
     onError?: (error: string) => void;
   }) => {
+    console.log('[listenTaskStatus] 开始监听任务:', taskId);
     const numericTaskId = Number(taskId);
     if (isNaN(numericTaskId) || !isFinite(numericTaskId)) {
+      console.error('[listenTaskStatus] 无效的任务ID:', taskId);
       callbacks.onError?.('无效的任务ID');
       return () => {};
     }
@@ -365,6 +369,7 @@ export function useImageGenerationV2(
 
     const wrappedCallbacks = {
       onUpdate: (data: TaskProgressData) => {
+        console.log('[listenTaskStatus] 任务更新:', { taskId: numericTaskId, status: data.status, progress: data.progress });
         // 更新预估剩余时间
         if (data.status === 'PROCESSING' || data.status === 'PENDING') {
           setEstimatedRemainingTime(data.estimated_remaining_seconds || null);
@@ -373,6 +378,7 @@ export function useImageGenerationV2(
         callbacks.onUpdate?.(data);
       },
       onComplete: async (data: TaskProgressData) => {
+        console.log('[listenTaskStatus] 任务完成:', { taskId: numericTaskId, data });
         setEstimatedRemainingTime(null);
         await refreshProfile();
 
@@ -384,6 +390,7 @@ export function useImageGenerationV2(
         callbacks.onComplete(data);
       },
       onFailed: (error: string) => {
+        console.log('[listenTaskStatus] 任务失败:', { taskId: numericTaskId, error });
         setEstimatedRemainingTime(null);
         setError(error);
 
