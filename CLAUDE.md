@@ -54,18 +54,58 @@ backend/
 ├── app/
 │   ├── routes/           # API endpoints
 │   │   ├── auth.py       # Authentication (JWT)
+│   │   ├── generation.py # Legacy V1 async API
 │   │   └── generation_v2.py  # V2 image processing API
 │   ├── services/         # Business logic
-│   │   ├── image_gen_v2.py   # V2 image processing pipeline
+│   │   ├── image_gen_v2.py   # Gemini image processing pipeline
+│   │   ├── image_gen.py      # Legacy image generator
 │   │   ├── task_queue.py     # Background task queue
-│   │   └── prompt_template.py # AI prompt templates
-│   ├── models.py         # SQLAlchemy ORM models
+│   │   └── prompt_template.py # AI prompt template system
+│   ├── models.py         # SQLAlchemy ORM models (User, GenerationTask)
 │   ├── schemas.py        # Pydantic schemas
 │   ├── auth.py           # JWT handling
 │   ├── config.py         # Environment configuration
-│   └── main.py           # FastAPI application
+│   ├── errors.py         # Error codes and AppException classes
+│   ├── database.py       # SQLAlchemy engine setup
+│   └── main.py           # FastAPI application entry
 ├── init_db.py            # Database initialization
 └── migrate_*.py          # Database migrations
+```
+
+### Frontend Structure
+
+```
+src/
+├── components/
+│   ├── ui/               # shadcn/ui base components
+│   ├── UserMenu.tsx
+│   ├── ImageUploader.tsx
+│   ├── ImagePreview.tsx
+│   ├── ProcessingProgress.tsx
+│   ├── TaskHistory.tsx
+│   ├── TaskQueuePanel.tsx
+│   └── ...
+├── pages/
+│   ├── Index.tsx         # Main generator UI
+│   ├── Auth.tsx          # Login/register page
+│   ├── Settings.tsx
+│   ├── Credits.tsx
+│   └── NotFound.tsx
+├── hooks/
+│   ├── useAuth.tsx       # Auth context with signIn/signUp/signOut
+│   ├── useTaskHistory.ts # Task history with optional polling
+│   ├── useImageGenerationV2.ts # Synchronous V2 image processing
+│   ├── useImageCache.ts
+│   └── useDevToolsShortcut.ts
+├── integrations/
+│   ├── api/client.ts     # Axios client with JWT interceptor
+│   └── supabase/         # Supabase client (unused)
+├── lib/
+│   ├── utils.ts          # cn() utility (clsx + tailwind-merge)
+│   └── image-cache.ts
+├── config/
+│   └── index.ts          # Centralized configuration
+└── App.tsx               # Providers hierarchy (QueryClient, Auth, Router)
 ```
 
 ### Path Alias
@@ -83,6 +123,8 @@ backend/
 2. **Auth**: React Context pattern via `useAuth()` hook with JWT tokens
 3. **Image Processing**: Axios API calls with template chains (remove_bg -> standardize -> ecommerce -> color_correct)
 4. **UI Components**: shadcn/ui style - base components in `ui/`, composite components at root level
+5. **Error Handling**: Centralized error module (`app/errors.py`) with `ErrorCode` enum and `AppException` class
+6. **Prompt Templates**: Chain-based system (`app/services/prompt_template.py`) with configurable templates and priorities
 
 ### Deployment Architecture
 
@@ -107,11 +149,14 @@ backend/
 
 ### Important Files
 
+- `backend/app/main.py` - FastAPI app with lifespan, CORS, routes, static files
+- `backend/app/errors.py` - Error codes enum and AppException class
+- `backend/app/services/image_gen_v2.py` - Gemini image processing with template chain support
+- `backend/app/services/prompt_template.py` - Prompt template system (singleton pattern)
+- `backend/app/services/task_queue.py` - Background task queue
 - `src/App.tsx` - Providers hierarchy (QueryClient, Auth, Router)
 - `src/pages/Index.tsx` - Main generator UI
-- `src/hooks/useAuth.tsx` - Auth context with signIn/signUp/signOut
-- `src/hooks/useTaskHistory.ts` - Task history with optional polling
-- `src/hooks/useImageGenerationV2.ts` - Synchronous V2 image processing
+- `src/hooks/useImageGenerationV2.ts` - Synchronous V2 image processing hook
 - `src/integrations/api/client.ts` - Axios client with JWT interceptor + API endpoints
 - `src/config/index.ts` - Centralized configuration
 - `src/lib/utils.ts` - `cn()` utility (clsx + tailwind-merge)
