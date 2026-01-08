@@ -1,5 +1,6 @@
 from pydantic_settings import BaseSettings
 from functools import lru_cache
+from typing import Optional
 import os
 
 
@@ -30,7 +31,7 @@ class Settings(BaseSettings):
 
     # Backend Server - 用于构建完整的图片 URL
     BACKEND_HOST: str = "localhost"
-    BACKEND_PORT: int = 8001
+    BACKEND_PORT: Optional[int] = None
 
     # 文件存储配置
     UPLOAD_DIR: str = "uploads"

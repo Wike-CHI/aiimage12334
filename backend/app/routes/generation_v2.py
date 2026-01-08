@@ -58,7 +58,10 @@ def make_image_url(path: str) -> str:
 
     # 从配置获取后端地址
     settings = get_settings()
-    backend_url = f"http://{settings.BACKEND_HOST}:{settings.BACKEND_PORT}"
+    if settings.BACKEND_PORT:
+        backend_url = f"http://{settings.BACKEND_HOST}:{settings.BACKEND_PORT}"
+    else:
+        backend_url = f"http://{settings.BACKEND_HOST}"
 
     # 确保路径以 / 开头
     if not path.startswith("/"):

@@ -22,7 +22,14 @@
       "Bash(npm run build:dev)",
       "Bash(npx vite build:*)",
       "Bash(lsof:*)",
-      "Bash(xargs:*)"
+      "Bash(xargs:*)",
+      "Bash(systemctl list-units:*)",
+      "Bash(cat:*)",
+      "Bash(sudo systemctl status nginx)",
+      "Bash(sudo cp:*)",
+      "Bash(sudo nginx:*)",
+      "Bash(sudo systemctl:*)",
+      "Bash(curl:*)"
     ]
   }
 }

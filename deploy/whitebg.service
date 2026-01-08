@@ -9,6 +9,7 @@ User=www
 Group=www
 WorkingDirectory=/www/wwwroot/生图网站/aiimage12334/backend
 Environment="PATH=/www/wwwroot/生图网站/aiimage12334/.venv312/bin"
+Environment="APP_ENV_FILE=/www/wwwroot/生图网站/aiimage12334/backend/.env"
 ExecStart=/www/wwwroot/生图网站/aiimage12334/.venv312/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 8001
 ExecReload=/bin/kill -HUP $MAINPID
 KillMode=mixed

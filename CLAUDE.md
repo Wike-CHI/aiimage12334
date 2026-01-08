@@ -84,6 +84,27 @@ backend/
 3. **Image Processing**: Axios API calls with template chains (remove_bg -> standardize -> ecommerce -> color_correct)
 4. **UI Components**: shadcn/ui style - base components in `ui/`, composite components at root level
 
+### Deployment Architecture
+
+**IMPORTANT**: This project uses Tauri desktop app, NOT web deployment for frontend.
+
+- **Frontend**: Tauri 2.0 desktop application (runs on user's machine)
+- **Backend**: FastAPI server on port 8001, Nginx reverse proxy on port 8002
+- **API Access**: `http://129.211.218.135:8002` (Nginx -> FastAPI)
+- **Image URLs**: Generated as `http://129.211.218.135:8002/results/xxx.png` (no port when Nginx listens on 80)
+
+```mermaid
+[Tauri Desktop App] --> [http://129.211.218.135:8002] (Nginx) --> [127.0.0.1:8001] (FastAPI)
+```
+
+### Environment Variables
+
+| Variable | Location | Purpose |
+|----------|----------|---------|
+| `VITE_API_URL` | Frontend `.env.production` | Tauri desktop app API endpoint (e.g., `http://129.211.218.135:8002`) |
+| `BACKEND_HOST` | Backend `.env` | Backend hostname for image URLs |
+| `BACKEND_PORT` | Backend `.env` | Backend port for image URLs (set empty for no port) |
+
 ### Important Files
 
 - `src/App.tsx` - Providers hierarchy (QueryClient, Auth, Router)
