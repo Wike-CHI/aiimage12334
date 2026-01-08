@@ -154,12 +154,10 @@ const Index = () => {
 
       // 定义任务完成回调
       const handleTaskComplete = async (data: TaskProgressData) => {
-        // 更新任务队列状态
-        setTaskQueue((prev) =>
-          prev.map((t) =>
-            t.id === taskIdStr ? { ...t, status: "completed" as TaskStatus, progress: 100 } : t
-          )
-        );
+        // 从队列中移除已完成的任务（2秒后自动移除）
+        setTimeout(() => {
+          setTaskQueue((prev) => prev.filter((t) => t.id !== taskIdStr));
+        }, 2000);
 
         // 刷新任务历史，显示新完成的任务
         await refetchTasks();
@@ -186,10 +184,10 @@ const Index = () => {
       // 定义任务失败回调
       const handleTaskFailed = (error: string) => {
         console.error("任务失败:", error);
-        // 更新任务队列状态
-        setTaskQueue((prev) =>
-          prev.map((t) => (t.id === taskIdStr ? { ...t, status: "failed" as TaskStatus } : t))
-        );
+        // 从队列中移除失败的任务（3秒后自动移除，给用户时间看到错误）
+        setTimeout(() => {
+          setTaskQueue((prev) => prev.filter((t) => t.id !== taskIdStr));
+        }, 3000);
 
         setError({
           type: "server",

@@ -79,6 +79,7 @@ export function useImageGenerationV2(
 
   const { user, refreshProfile } = useAuth();
   const { toast } = useToast();
+  const wsContext = useWebSocketContext(); // 在 hook 顶层调用
 
   const defaultTemplateIds = options.templateIds || [
     'remove_bg',
@@ -359,9 +360,8 @@ export function useImageGenerationV2(
       return () => {};
     }
 
-    // 使用 useTaskSubscription hook 需要在组件内调用
-    // 这里我们直接使用 subscribe 函数
-    const { subscribe } = useWebSocketContext();
+    // 使用在 hook 顶层获取的 wsContext
+    const { subscribe } = wsContext;
 
     const wrappedCallbacks = {
       onUpdate: (data: TaskProgressData) => {
