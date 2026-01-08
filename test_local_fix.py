@@ -9,7 +9,7 @@ from pathlib import Path
 
 # 配置 - 使用生产环境的远程服务器
 API_BASE = "http://129.211.218.135:8002"  # 远程服务器地址
-TEST_IMAGE = "test_ai.py"  # 使用项目中已有的文件作为测试
+TEST_IMAGE = "/www/wwwroot/生图网站/aiimage12334/34_original.png"  # 使用实际存在的照片
 
 def login_and_get_token():
     """登录并获取 token"""
@@ -42,21 +42,20 @@ def create_async_task(token):
     """创建异步任务"""
     print("\n2️⃣  创建异步图片处理任务...")
     
-    # 创建一个测试图片（1x1 像素的 PNG）
-    import io
-    from PIL import Image
+    # 读取真实的图片文件
+    if not Path(TEST_IMAGE).exists():
+        print(f"   ❌ 图片文件不存在: {TEST_IMAGE}")
+        return None
     
-    img = Image.new('RGB', (100, 100), color='white')
-    img_bytes = io.BytesIO()
-    img.save(img_bytes, format='PNG')
-    img_bytes.seek(0)
+    print(f"   📷 使用图片: {TEST_IMAGE}")
+    print(f"   📊 文件大小: {Path(TEST_IMAGE).stat().st_size / 1024:.1f} KB")
     
     headers = {
         "Authorization": f"Bearer {token}"
     }
     
     files = {
-        "file": ("test.png", img_bytes, "image/png")
+        "file": ("test.png", open(TEST_IMAGE, "rb"), "image/png")
     }
     
     data = {
@@ -66,22 +65,25 @@ def create_async_task(token):
         "timeout_seconds": "180"
     }
     
-    response = requests.post(
-        f"{API_BASE}/api/v2/tasks/async",
-        headers=headers,
-        files=files,
-        data=data
-    )
-    
-    if response.status_code == 200:
-        result = response.json()
-        task_id = result.get("task_id")
-        print(f"   ✅ 任务创建成功，Task ID: {task_id}")
-        return task_id
-    else:
-        print(f"   ❌ 任务创建失败: {response.status_code}")
-        print(f"   响应: {response.text}")
-        return None
+    try:
+        response = requests.post(
+            f"{API_BASE}/api/v2/tasks/async",
+            headers=headers,
+            files=files,
+            data=data
+        )
+        
+        if response.status_code == 200:
+            result = response.json()
+            task_id = result.get("task_id")
+            print(f"   ✅ 任务创建成功，Task ID: {task_id}")
+            return task_id
+        else:
+            print(f"   ❌ 任务创建失败: {response.status_code}")
+            print(f"   响应: {response.text}")
+            return None
+    finally:
+        files["file"][1].close()
 
 def check_task_status(task_id, token):
     """检查任务状态"""
@@ -91,7 +93,7 @@ def check_task_status(task_id, token):
         "Authorization": f"Bearer {token}"
     }
     
-    max_attempts = 30  # 最多等待 30 秒
+    max_attempts = 60  # 最多等待 60 秒
     for i in range(max_attempts):
         response = requests.get(
             f"{API_BASE}/api/v2/tasks/{task_id}",
@@ -157,6 +159,7 @@ def main():
     print("=" * 70)
     print("🧪 远程服务器修复测试 - 异步任务 + Session 管理")
     print(f"   服务器: {API_BASE}")
+    print(f"   测试图片: {TEST_IMAGE}")
     print("=" * 70)
     
     # 检查后端是否运行

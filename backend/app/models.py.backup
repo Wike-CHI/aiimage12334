@@ -36,8 +36,6 @@ class GenerationTask(Base):
     credits_used = Column(Integer, default=1)
     width = Column(Integer, default=1024)
     height = Column(Integer, default=1024)
-    progress = Column(Integer, default=0)  # 任务进度 0-100
-    progress = Column(Integer, default=0)  # 任务进度 0-100
     elapsed_time = Column(Float, nullable=True)  # 处理耗时（秒）
     error_message = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())

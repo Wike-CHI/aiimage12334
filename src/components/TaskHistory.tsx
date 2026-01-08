@@ -244,7 +244,7 @@ export function TaskHistory({ tasks, onRefresh, onSelect }: TaskHistoryProps) {
       <ScrollArea className="h-[400px]">
         <div className="space-y-3 pr-4">
           {tasks.map((task) => {
-            const status = statusConfig[task.status as keyof typeof statusConfig] || statusConfig.PENDING;
+            const status = statusConfig[task.status.toUpperCase() as keyof typeof statusConfig] || statusConfig.PENDING;
             const StatusIcon = status.icon;
             const resolution = `${task.width}x${task.height}`;
             const isLoading = loadingTasks.has(task.id);

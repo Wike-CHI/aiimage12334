@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 
 from app.auth import get_current_user
 from app.models import User, GenerationTask, TaskStatus
-from app.database import get_db
+from app.database import get_db, SessionLocal
 from app.services.image_gen_v2 import (
     process_image_with_gemini,
     process_image_with_template_chain,
@@ -688,6 +688,7 @@ class TaskStatusResponse(BaseModel):
     """任务状态查询响应"""
     task_id: int
     status: str
+    progress: int = 0  # 任务进度 0-100
     result_image_url: Optional[str] = None
     elapsed_time: Optional[float] = None
     estimated_remaining_seconds: Optional[int] = None
@@ -708,40 +709,74 @@ async def process_task_background(
 ):
     """
     后台处理任务
-    注意：不接收 Session 参数，在函数内部创建新的 Session
+    使用独立的 SessionLocal 创建会话，避免请求 Session 过期问题
     """
+    db_session = None
     user_id = None
-    # 创建新的独立 Session，避免使用已关闭的请求 Session
-    db_session = next(get_db())
+    logger.info(f"[START] [Task {task_id}] ========== 开始处理后台任务 ==========")
+    logger.info(f"[PATH] [Task {task_id}] 文件路径 - 输入: {original_path}, 输出: {result_path}")
+    logger.info(f"[PARAM] [Task {task_id}] 模板: {template_ids}, 比例: {aspect_ratio}, 尺寸: {image_size}")
 
     async def update_progress(progress: int, estimated_remaining: int = None):
-        """推送进度更新"""
+        """推送进度更新并更新数据库"""
+        logger.info(f"[WS_PUSH] [Task {task_id}] 准备推送进度: {progress}%, user_id={user_id}")
+        
+        # 更新数据库progress字段
+        if db_session:
+            try:
+                task_obj = db_session.query(GenerationTask).filter(GenerationTask.id == task_id).first()
+                if task_obj:
+                    task_obj.progress = progress
+                    db_session.commit()
+                    logger.info(f"[DB] [Task {task_id}] 数据库进度已更新: {progress}%")
+            except Exception as db_error:
+                logger.error(f"[FAILED] [Task {task_id}] 数据库进度更新失败: {db_error}")
+                db_session.rollback()
+        
+        # WebSocket推送
         if user_id:
-            await notify_task_progress(
-                user_id=user_id,
-                task_id=task_id,
-                status="processing",
-                progress=progress,
-                estimated_remaining=estimated_remaining
-            )
+            try:
+                await notify_task_progress(
+                    user_id=user_id,
+                    task_id=task_id,
+                    status="processing",
+                    progress=progress,
+                    estimated_remaining=estimated_remaining
+                )
+                logger.info(f"[SUCCESS] [Task {task_id}] 进度推送成功: {progress}%")
+            except Exception as ws_error:
+                logger.error(f"[FAILED] [Task {task_id}] 进度推送失败: {ws_error}", exc_info=True)
+        else:
+            logger.warning(f"[WARN]  [Task {task_id}] user_id 为空，无法推送进度")
 
     try:
+        # 创建独立的数据库 Session
+        logger.info(f"[Task {task_id}] 创建 SessionLocal")
+        db_session = SessionLocal()
+
         # 更新状态为 PROCESSING
+        logger.info(f"[Task {task_id}] 查询数据库任务")
         task = db_session.query(GenerationTask).filter(GenerationTask.id == task_id).first()
         if task:
             user_id = task.user_id
+            logger.info(f"[Task {task_id}] 找到任务, user_id={user_id}, 状态={task.status}")
             task.status = TaskStatus.PROCESSING
             db_session.commit()
+            logger.info(f"[Task {task_id}] 状态已更新为 PROCESSING")
+        else:
+            logger.error(f"[Task {task_id}] 未找到任务记录!")
+            return
 
-            # WebSocket 推送任务开始处理
-            await update_progress(0, 30)
+        # WebSocket 推送任务开始处理
+        await update_progress(0, 30)
 
-        logger.info(f"后台任务开始处理: task_id={task_id}")
+        logger.info(f"[PROCESS] [Task {task_id}] 后台任务开始处理")
 
         # 推送 30% 进度
         await update_progress(30, 20)
 
         # 在线程池中执行图片处理（避免阻塞事件循环）
+        logger.info(f"[API_CALL] [Task {task_id}] 开始调用 process_image_with_gemini")
         result = await asyncio.to_thread(
             process_image_with_gemini,
             image_path=original_path,
@@ -752,6 +787,7 @@ async def process_task_background(
             aspect_ratio=aspect_ratio,
             image_size=image_size
         )
+        logger.info(f"[API_DONE] [Task {task_id}] process_image_with_gemini 完成, result={result}")
 
         # 推送 60% 进度
         await update_progress(60, 10)
@@ -764,16 +800,14 @@ async def process_task_background(
         if task:
             task.status = TaskStatus.COMPLETED
             task.result_image_url = result_path
+            task.progress = 100  # 完成时进度100%
             task.elapsed_time = result.get("elapsed_time")
-            # 保存 user_id 以便后续使用
-            if not user_id:
-                user_id = task.user_id
             db_session.commit()
 
             # WebSocket 推送任务完成
             result_url = make_image_url(result_path)
             await notify_task_progress(
-                user_id=user_id,  # 使用保存的 user_id
+                user_id=user_id,
                 task_id=task_id,
                 status="completed",
                 progress=100,
@@ -787,19 +821,18 @@ async def process_task_background(
         error_msg = str(e)
         logger.error(f"后台任务失败: task_id={task_id}, error={error_msg}", exc_info=True)
 
-        # 重新查询任务并更新状态为 FAILED
+        # 使用独立的数据库连接来更新失败状态
+        db_session_for_error = None
         try:
-            task = db_session.query(GenerationTask).filter(GenerationTask.id == task_id).first()
+            db_session_for_error = SessionLocal()
+            task = db_session_for_error.query(GenerationTask).filter(GenerationTask.id == task_id).first()
             if task:
-                # 保存 user_id 以便 WebSocket 推送
-                if not user_id:
-                    user_id = task.user_id
-                
+                user_id = task.user_id  # 确保有 user_id 用于 WebSocket 推送
                 task.status = TaskStatus.FAILED
                 task.error_message = error_msg
-                db_session.commit()
+                db_session_for_error.commit()
 
-                # WebSocket 推送任务失败（使用保存的 user_id）
+                # WebSocket 推送任务失败
                 if user_id:
                     await notify_task_progress(
                         user_id=user_id,
@@ -809,9 +842,14 @@ async def process_task_background(
                     )
         except Exception as db_error:
             logger.error(f"更新失败任务状态时出错: {db_error}", exc_info=True)
+        finally:
+            if db_session_for_error:
+                db_session_for_error.close()
+
     finally:
         # 关闭 Session
-        db_session.close()
+        if db_session:
+            db_session.close()
 
 
 # ============ 异步任务 API ============
@@ -875,7 +913,7 @@ async def create_async_task(
     db.refresh(db_task)
     task_id = db_task.id
 
-    logger.info(f"创建异步任务: task_id={task_id}")
+    logger.info(f"📝 [Task {task_id}] 创建异步任务 - user_id={current_user.id}, user={current_user.username}")
 
     # 使用任务ID生成文件名
     original_filename = f"{task_id}_original{ext}"
@@ -910,7 +948,7 @@ async def create_async_task(
             )
         )
 
-        logger.info(f"异步任务已启动: task_id={task_id}")
+        logger.info(f"[SUCCESS] [Task {task_id}] 异步任务已启动并加入事件循环")
 
         return AsyncTaskResponse(
             task_id=task_id,
@@ -953,6 +991,9 @@ def get_task_status(
     if not task:
         raise task_not_found_error(task_id=task_id)
 
+    # 刷新task对象以确保获取最新的progress值
+    db.refresh(task)
+
     # 计算预估剩余时间
     estimated_remaining = None
     if task.status in [TaskStatus.PENDING, TaskStatus.PROCESSING]:
@@ -971,6 +1012,7 @@ def get_task_status(
     return TaskStatusResponse(
         task_id=task.id,
         status=task.status.value if hasattr(task.status, 'value') else task.status,
+        progress=task.progress if task.progress is not None else 0,  # 任务进度
         result_image_url=make_image_url(task.result_image_url) if task.result_image_url else None,
         elapsed_time=getattr(task, 'elapsed_time', None),
         estimated_remaining_seconds=estimated_remaining,
