@@ -33,7 +33,12 @@
       "Bash(sudo firewall-cmd:*)",
       "Bash(sudo iptables -L:*)",
       "Skill(ui-ux-pro-max)",
-      "Skill(ui-ux-pro-max:*)"
+      "Skill(ui-ux-pro-max:*)",
+      "Bash(find:*)",
+      "Bash(nginx:*)",
+      "Bash(systemctl reload:*)",
+      "Bash(systemctl restart:*)",
+      "Bash(systemctl status:*)"
     ]
   }
 }

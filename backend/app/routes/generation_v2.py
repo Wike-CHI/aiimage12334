@@ -564,6 +564,7 @@ def get_v2_task_history(
                 width=task.width,
                 height=task.height,
                 created_at=task.created_at.isoformat() if task.created_at else "",
+                elapsed_time=task.elapsed_time,
                 error_message=task.error_message,
             )
             for task in tasks
