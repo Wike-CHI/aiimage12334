@@ -88,6 +88,7 @@ const Index = () => {
 
   // 同步预估剩余时间到倒计时
   useEffect(() => {
+    console.log('[Index] isProcessing 或 estimatedRemainingTime 变化:', { isProcessing, estimatedRemainingTime });
     if (isProcessing && estimatedRemainingTime !== null) {
       setCountdown(estimatedRemainingTime);
     }
@@ -143,8 +144,10 @@ const Index = () => {
       });
 
       // 提交异步任务，获取任务ID
+      console.log('[Index] 开始提交异步任务');
       const taskId = await processImageAsync(file, ratio, resolution);
       const taskIdStr = String(taskId);
+      console.log('[Index] 任务创建成功，taskId:', taskId);
 
       // 添加到任务队列
       setTaskQueue((prev) => [
@@ -154,29 +157,34 @@ const Index = () => {
 
       // 定义任务完成回调
       const handleTaskComplete = async (data: TaskProgressData) => {
+        console.log('[Index] handleTaskComplete 触发:', { taskId, data });
         // 从队列中移除已完成的任务（2秒后自动移除）
         setTimeout(() => {
+          console.log('[Index] 2秒后从队列移除任务:', taskIdStr);
           setTaskQueue((prev) => prev.filter((t) => t.id !== taskIdStr));
         }, 2000);
 
         // 刷新任务历史，显示新完成的任务
         await refetchTasks();
 
-        // 从 WebSocket 数据获取结果图片
-        if (data.result_image_url) {
-          setProcessedImage(data.result_image_url);
+        // 不再直接显示结果图片，而是自动跳转到历史记录标签
+        console.log('[Index] 任务完成，切换到历史记录标签');
+        setActiveTab("history");
 
-          // 自动下载图片
-          const link = document.createElement("a");
-          link.href = data.result_image_url;
-          link.download = `white-bg-${taskId}.png`;
-          document.body.appendChild(link);
-          link.click();
-          document.body.removeChild(link);
+        // 如果有结果图片 URL，准备下载链接（不自动下载，让用户在历史记录中选择）
+        if (data.result_image_url) {
+          console.log('[Index] 结果图片可在历史记录中查看:', data.result_image_url);
 
           toast({
             title: "生成成功",
-            description: "图片已自动下载",
+            description: "白底图已生成完成，请在历史记录中查看和下载",
+            duration: 5000,
+          });
+        } else {
+          console.warn('[Index] 任务完成但没有结果图片URL');
+          toast({
+            title: "任务完成",
+            description: "请在历史记录中查看详情",
           });
         }
       };
@@ -199,11 +207,13 @@ const Index = () => {
       wsCleanupRef.current?.();
 
       // 启动 WebSocket 监听任务状态
+      console.log('[Index] 启动 WebSocket 监听:', taskId);
       wsCleanupRef.current = listenTaskStatus(
         taskId,
         {
           // 任务进度更新
           onUpdate: (data) => {
+            console.log('[Index] onUpdate 触发:', { taskId, progress: data.progress });
             // 更新任务队列进度
             setTaskQueue((prev) =>
               prev.map((t) =>
@@ -219,6 +229,7 @@ const Index = () => {
           onError: handleTaskFailed,
         }
       );
+      console.log('[Index] WebSocket 监听已设置，cleanup函数已保存');
     } catch (error) {
       console.error("Error generating white background:", error);
       setError({
