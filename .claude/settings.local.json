@@ -18,7 +18,11 @@
       "Bash(pytest:*)",
       "Bash(npm run build)",
       "Bash(npx tsc:*)",
-      "Bash(python3:*)"
+      "Bash(python3:*)",
+      "Bash(npm run build:dev)",
+      "Bash(npx vite build:*)",
+      "Bash(lsof:*)",
+      "Bash(xargs:*)"
     ]
   }
 }

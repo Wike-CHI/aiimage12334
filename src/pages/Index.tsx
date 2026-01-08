@@ -5,6 +5,11 @@ import { ImageUploader } from "@/components/ImageUploader";
 import { ImagePreview } from "@/components/ImagePreview";
 import { TaskHistory } from "@/components/TaskHistory";
 import { UserMenu } from "@/components/UserMenu";
+import { ProcessingProgress } from "@/components/ProcessingProgress";
+import { ErrorCard } from "@/components/ErrorCard";
+import { EmptyState } from "@/components/EmptyState";
+import { CreditsDisplay } from "@/components/CreditsDisplay";
+import { TaskQueuePanel, TaskStatus } from "@/components/TaskQueuePanel";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
@@ -15,7 +20,6 @@ import { useTaskHistory } from "@/hooks/useTaskHistory";
 import { useUploadImageCache } from "@/hooks/useImageCache";
 import { useTaskImageCache } from "@/hooks/useImageCache";
 import { useImageGenerationV2 } from "@/hooks/useImageGenerationV2";
-import { imageUtils } from "@/integrations/api/client";
 import { GENERATION_CONFIG } from "@/config";
 
 // 使用后端API返回的配置生成下拉选项
@@ -47,6 +51,10 @@ const Index = () => {
   const [activeTab, setActiveTab] = useState("generate");
   // 倒计时状态
   const [countdown, setCountdown] = useState<number | null>(null);
+  // 错误状态
+  const [error, setError] = useState<{ type: string; message: string } | null>(null);
+  // 任务队列状态
+  const [taskQueue, setTaskQueue] = useState<Array<{ id: string; status: TaskStatus; name?: string; progress?: number }>>([]);
   const { toast } = useToast();
   const { user } = useAuth();
   const { tasks, refetch: refetchTasks } = useTaskHistory();
@@ -87,12 +95,17 @@ const Index = () => {
     setOriginalCacheKey(cacheKey || null);
     setProcessedImage(null);
     setProcessedCacheKey(null);
+    setError(null);
   }, []);
 
   const handleGenerate = useCallback(async () => {
     if (!originalImage) return;
 
     if (!user) {
+      setError({
+        type: "login",
+        message: "请先登录，登录后即可使用白底图生成功能",
+      });
       toast({
         title: "请先登录",
         description: "登录后即可使用白底图生成功能",
@@ -103,16 +116,16 @@ const Index = () => {
     }
 
     if (!user || user.credits < 1) {
-      toast({
-        title: "积分不足",
-        description: "您的积分已用完，请充值后继续使用",
-        variant: "destructive",
+      setError({
+        type: "credits",
+        message: "您的积分已用完，请充值后继续使用",
       });
       return;
     }
 
     setProcessedImage(null);
     setProcessedCacheKey(null);
+    setError(null);
 
     try {
       // 将 base64 转换为 File
@@ -128,12 +141,26 @@ const Index = () => {
 
       // 提交异步任务，获取任务ID
       const taskId = await processImageAsync(file, ratio, resolution);
+      const taskIdStr = String(taskId);
+
+      // 添加到任务队列
+      setTaskQueue((prev) => [
+        ...prev,
+        { id: taskIdStr, status: "processing" as TaskStatus, name: "生成白底图", progress: 0 },
+      ]);
 
       // 启动轮询任务状态
       pollTaskStatus(
         taskId,
         // 任务完成回调
         async (result) => {
+          // 更新任务队列状态
+          setTaskQueue((prev) =>
+            prev.map((t) =>
+              t.id === taskIdStr ? { ...t, status: "completed" as TaskStatus, progress: 100 } : t
+            )
+          );
+
           // 刷新任务历史，显示新完成的任务
           await refetchTasks();
 
@@ -148,22 +175,40 @@ const Index = () => {
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
+
+            toast({
+              title: "生成成功",
+              description: "图片已自动下载",
+            });
           }
         },
         // 任务失败回调
-        (error) => {
+        (error: unknown) => {
           console.error("任务失败:", error);
+          // 更新任务队列状态
+          setTaskQueue((prev) =>
+            prev.map((t) => (t.id === taskIdStr ? { ...t, status: "failed" as TaskStatus } : t))
+          );
+
+          setError({
+            type: "server",
+            message: error instanceof Error ? error.message : "处理失败，请稍后重试",
+          });
         }
       );
     } catch (error) {
       console.error("Error generating white background:", error);
+      setError({
+        type: "unknown",
+        message: error instanceof Error ? error.message : "生成失败，请稍后重试",
+      });
       toast({
         title: "生成失败",
         description: error instanceof Error ? error.message : "请稍后重试",
         variant: "destructive",
       });
     }
-  }, [originalImage, toast, user, navigate, ratio, resolution, processImageAsync, pollTaskStatus, refetchTasks, tasks]);
+  }, [originalImage, toast, user, navigate, ratio, resolution, processImageAsync, pollTaskStatus, refetchTasks]);
 
   const handleClear = useCallback(() => {
     setOriginalImage(null);
@@ -252,14 +297,19 @@ const Index = () => {
           <p className="text-muted-foreground text-base md:text-lg max-w-xl mx-auto">
             上传任意图片，AI 智能识别主体，自动生成纯白背景图片
           </p>
+          {/* 积分显示卡片 */}
           {user && (
-            <p className="mt-3 text-sm text-muted-foreground">
-              当前积分: <span className="font-semibold text-amber-500">{user.credits}</span>（每次生成消耗1积分）
-            </p>
+            <div className="max-w-xs mx-auto mt-4">
+              <CreditsDisplay
+                credits={user.credits}
+                threshold={10}
+                onRecharge={() => navigate("/credits")}
+              />
+            </div>
           )}
           {/* 显示处理耗时 */}
           {elapsedTime && (
-            <p className="mt-2 text-sm text-green-500">
+            <p className="mt-3 text-sm text-green-500 font-medium">
               上次处理耗时: {elapsedTime.toFixed(1)} 秒
             </p>
           )}
@@ -286,13 +336,54 @@ const Index = () => {
 
             <TabsContent value="generate">
               <div className="surface-elevated rounded-2xl shadow-medium p-6 md:p-8 border border-border/50">
+                {/* 未上传图片时显示空状态引导 */}
                 {!originalImage ? (
-                  <ImageUploader 
-                    onImageSelect={handleImageSelect} 
-                    disabled={isProcessing}
-                  />
+                  user ? (
+                    // 已登录用户 - 显示上传区域
+                    <ImageUploader
+                      onImageSelect={handleImageSelect}
+                      disabled={isProcessing}
+                    />
+                  ) : (
+                    // 未登录用户 - 显示引导组件
+                    <EmptyState
+                      isLoggedIn={false}
+                      onGuestAction={() => {
+                        // 触发文件选择
+                        const input = document.createElement("input");
+                        input.type = "file";
+                        input.accept = "image/*";
+                        input.onchange = (e) => {
+                          const file = (e.target as HTMLInputElement).files?.[0];
+                          if (file) {
+                            const reader = new FileReader();
+                            reader.onload = (ev) => {
+                              if (ev.target?.result) {
+                                handleImageSelect(ev.target.result as string);
+                              }
+                            };
+                            reader.readAsDataURL(file);
+                          }
+                        };
+                        input.click();
+                      }}
+                    />
+                  )
                 ) : (
                   <div className="space-y-6">
+                    {/* 错误状态卡片 */}
+                    {error && (
+                      <ErrorCard
+                        type={error.type as "network" | "upload" | "server" | "credits" | "unknown"}
+                        message={error.message}
+                        onRetry={() => {
+                          setError(null);
+                          handleGenerate();
+                        }}
+                        onHelp={() => navigate("/help")}
+                      />
+                    )}
+
                     <ImagePreview
                       originalImage={originalImage}
                       processedImage={processedImage}
@@ -300,9 +391,9 @@ const Index = () => {
                       onClear={handleClear}
                       onDownload={handleDownload}
                     />
-                    
+
                     {/* Options */}
-                    {!processedImage && (
+                    {!processedImage && !error && (
                       <div className="flex flex-wrap justify-center gap-6 pt-2">
                         <div className="flex flex-col gap-2">
                           <Label className="text-sm text-muted-foreground">输出分辨率</Label>
@@ -332,13 +423,29 @@ const Index = () => {
                         </div>
                       </div>
                     )}
-                    
+
+                    {/* 处理进度组件 */}
+                    {isProcessing && (
+                      <ProcessingProgress
+                        progress={countdown ? Math.max(10, 100 - countdown * 3) : 50}
+                        currentStep="正在识别图片主体..."
+                        estimatedRemaining={countdown}
+                        onCancel={() => {
+                          // 取消任务逻辑
+                          toast({
+                            title: "任务已取消",
+                            description: "您可以重新提交任务",
+                          });
+                        }}
+                      />
+                    )}
+
                     {/* Action Button */}
-                    {!processedImage && (
+                    {!processedImage && !error && (
                       <div className="flex justify-center pt-2">
                         <Button
                           onClick={handleGenerate}
-                          disabled={isProcessing || (!user)}
+                          disabled={isProcessing || (!user) || (user && user.credits < 1)}
                           size="lg"
                           className="px-8 h-12 text-base font-medium gradient-primary hover:opacity-90 transition-opacity"
                         >
@@ -349,6 +456,8 @@ const Index = () => {
                             </>
                           ) : !user ? (
                             <>请先登录</>
+                          ) : user.credits < 1 ? (
+                            <>积分不足</>
                           ) : (
                             <>
                               <Sparkles className="w-5 h-5 mr-2" />
@@ -359,26 +468,36 @@ const Index = () => {
                       </div>
                     )}
 
-                    {/* Processing Status */}
-                    {isProcessing && (
-                      <div className="text-center text-sm text-muted-foreground">
-                        <p>正在后台处理，请稍候...</p>
-                        {countdown !== null && (
-                          <p className="text-xs mt-1 text-amber-500 font-medium">
-                            预估剩余时间: {countdown} 秒
-                          </p>
-                        )}
-                        <p className="text-xs mt-1 text-blue-500">
-                          可继续上传其他图片
-                        </p>
+                    {/* 任务队列面板 */}
+                    {taskQueue.length > 0 && (
+                      <div className="mt-4">
+                        <TaskQueuePanel
+                          tasks={taskQueue}
+                          onCancelTask={(taskId) => {
+                            setTaskQueue((prev) =>
+                              prev.map((t) =>
+                                t.id === taskId ? { ...t, status: "failed" as TaskStatus } : t
+                              )
+                            );
+                          }}
+                          onRetryTask={(taskId) => {
+                            setTaskQueue((prev) =>
+                              prev.map((t) =>
+                                t.id === taskId ? { ...t, status: "pending" as TaskStatus, progress: 0 } : t
+                              )
+                            );
+                          }}
+                        />
                       </div>
                     )}
 
                     {/* Templates Info */}
-                    <div className="text-center text-xs text-muted-foreground mt-4">
-                      <p>使用模板链: {DEFAULT_TEMPLATE_IDS.join(" -> ")}</p>
-                      <p>可用模板: {templates.length} 个 | 模板链: {chains.length} 个</p>
-                    </div>
+                    {!isProcessing && !error && (
+                      <div className="text-center text-xs text-muted-foreground mt-4">
+                        <p>使用模板链: {DEFAULT_TEMPLATE_IDS.join(" -> ")}</p>
+                        <p>可用模板: {templates.length} 个 | 模板链: {chains.length} 个</p>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -387,19 +506,23 @@ const Index = () => {
             <TabsContent value="history">
               <div className="surface-elevated rounded-2xl shadow-medium p-6 md:p-8 border border-border/50">
                 {user ? (
-                  <TaskHistory 
-                    tasks={tasks} 
-                    onRefresh={refetchTasks} 
-                    onSelect={handleSelectTask}
-                  />
+                  tasks.length > 0 ? (
+                    <TaskHistory
+                      tasks={tasks}
+                      onRefresh={refetchTasks}
+                      onSelect={handleSelectTask}
+                    />
+                  ) : (
+                    <EmptyState isLoggedIn={true} />
+                  )
                 ) : (
-                  <div className="text-center py-12 text-muted-foreground">
-                    <History className="w-12 h-12 mx-auto mb-4 opacity-50" />
-                    <p>请先登录查看历史记录</p>
-                    <Button 
-                      variant="outline" 
-                      className="mt-4"
+                  <div className="text-center py-12">
+                    <History className="w-12 h-12 mx-auto mb-4 text-muted-foreground opacity-50" />
+                    <p className="text-muted-foreground mb-4">请先登录查看历史记录</p>
+                    <Button
+                      variant="default"
                       onClick={() => navigate("/auth")}
+                      className="gradient-primary hover:opacity-90 transition-opacity"
                     >
                       前往登录
                     </Button>
