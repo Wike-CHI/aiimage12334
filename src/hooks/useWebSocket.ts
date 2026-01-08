@@ -3,7 +3,7 @@
  * 提供 WebSocket 连接管理、自动重连、心跳保活和消息分发功能
  */
 
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { WEBSOCKET_CONFIG } from '@/config';
 import { useAuth } from './useAuth';
 
@@ -58,10 +58,20 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectAttemptsRef = useRef(0);
   const heartbeatTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const isConnectingRef = useRef(false);
   const [isConnected, setIsConnected] = useState(false);
   const [lastMessage, setLastMessage] = useState<WebSocketMessage | null>(null);
 
+  // Memoize options to prevent unnecessary re-renders
+  const memoizedOptions = useMemo(() => options, [options.enabled]);
+
   const connect = useCallback(() => {
+    // 防止重复连接
+    if (isConnectingRef.current) {
+      console.log('[WebSocket] Already connecting, skipping');
+      return;
+    }
+
     if (!user) {
       console.log('[WebSocket] No user, skipping connect');
       return;
@@ -82,14 +92,17 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
     const wsUrl = `${WEBSOCKET_CONFIG.url}?token=${token}`;
     console.log('[WebSocket] Connecting to:', wsUrl.replace(token, '***'));
 
+    isConnectingRef.current = true;
+
     try {
       const ws = new WebSocket(wsUrl);
 
       ws.onopen = () => {
         console.log('[WebSocket] Connected');
+        isConnectingRef.current = false;
         setIsConnected(true);
         reconnectAttemptsRef.current = 0;
-        options.onConnect?.();
+        memoizedOptions.onConnect?.();
 
         // 启动心跳
         heartbeatTimerRef.current = setInterval(() => {
@@ -106,13 +119,13 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
 
           switch (message.type) {
             case 'task_update':
-              message.task_id && options.onTaskUpdate?.(message.data, message.task_id);
+              message.task_id && memoizedOptions.onTaskUpdate?.(message.data, message.task_id);
               break;
             case 'task_complete':
-              message.task_id && options.onTaskComplete?.(message.data, message.task_id);
+              message.task_id && memoizedOptions.onTaskComplete?.(message.data, message.task_id);
               break;
             case 'task_failed':
-              message.task_id && options.onTaskFailed?.(message.data.error_message || 'Unknown error', message.task_id);
+              message.task_id && memoizedOptions.onTaskFailed?.(message.data.error_message || 'Unknown error', message.task_id);
               break;
             case 'pong':
               // 心跳响应，忽略
@@ -127,8 +140,9 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
 
       ws.onclose = (event) => {
         console.log('[WebSocket] Disconnected:', event.code, event.reason);
+        isConnectingRef.current = false;
         setIsConnected(false);
-        options.onDisconnect?.();
+        memoizedOptions.onDisconnect?.();
 
         // 清理心跳定时器
         if (heartbeatTimerRef.current) {
@@ -151,14 +165,15 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
 
       ws.onerror = (error) => {
         console.error('[WebSocket] Error:', error);
-        options.onError?.(error);
+        memoizedOptions.onError?.(error);
       };
 
       wsRef.current = ws;
     } catch (error) {
       console.error('[WebSocket] Failed to create connection:', error);
+      isConnectingRef.current = false;
     }
-  }, [user, options]);
+  }, [user, memoizedOptions]);
 
   const disconnect = useCallback(() => {
     console.log('[WebSocket] Manual disconnect');
@@ -175,6 +190,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
       wsRef.current = null;
     }
 
+    isConnectingRef.current = false;
     setIsConnected(false);
     reconnectAttemptsRef.current = 0;
   }, []);
@@ -185,9 +201,9 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
     }
   }, []);
 
-  // 自动连接/断开
+  // 自动连接/断开 - 只在用户和 enabled 状态变化时触发
   useEffect(() => {
-    if (options.enabled !== false && user) {
+    if (memoizedOptions.enabled !== false && user) {
       connect();
     } else {
       disconnect();
@@ -196,7 +212,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
     return () => {
       disconnect();
     };
-  }, [user, options.enabled, connect, disconnect]);
+  }, [user, memoizedOptions.enabled, connect, disconnect]);
 
   return {
     isConnected,
@@ -219,22 +235,27 @@ export function useTaskListener(
     onError?: (error: string) => void;
   }
 ) {
-  const { isConnected, ...ws } = useWebSocket({
-    onTaskUpdate: (data, id) => {
+  // Memoize callbacks to prevent unnecessary re-renders
+  const wrappedCallbacks = useMemo(() => ({
+    onTaskUpdate: (data: TaskProgressData, id: number) => {
       if (id === taskId) {
         callbacks.onUpdate?.(data);
       }
     },
-    onTaskComplete: (data, id) => {
+    onTaskComplete: (data: TaskProgressData, id: number) => {
       if (id === taskId) {
         callbacks.onComplete(data);
       }
     },
-    onTaskFailed: (error, id) => {
+    onTaskFailed: (error: string, id: number) => {
       if (id === taskId) {
         callbacks.onError?.(error);
       }
     },
+  }), [taskId, callbacks]);
+
+  const { isConnected, ...ws } = useWebSocket({
+    ...wrappedCallbacks,
     enabled: !!taskId,
   });
 

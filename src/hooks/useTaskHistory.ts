@@ -1,7 +1,7 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { generationV2API } from "@/integrations/api/client";
 import { useAuth } from "./useAuth";
-import { useWebSocket, TaskProgressData } from "./useWebSocket";
+import { useWebSocketContext, TaskProgressData } from "@/context/WebSocketContext";
 
 interface Task {
   id: number;
@@ -42,7 +42,7 @@ export function useTaskHistory(autoRefresh: boolean = false) {
     }
   }, [user]);
 
-  // WebSocket 消息处理器
+  // WebSocket 消息处理器 - 保持稳定引用
   const handleTaskUpdate = useCallback((data: TaskProgressData) => {
     // 更新本地任务列表中的对应任务状态
     setTasks(prev => prev.map(task =>
@@ -96,12 +96,31 @@ export function useTaskHistory(autoRefresh: boolean = false) {
     );
   }, []);
 
-  // 启用 WebSocket 监听
-  const { isConnected } = useWebSocket({
-    onTaskUpdate: handleTaskUpdate,
-    onTaskComplete: handleTaskComplete,
-    onTaskFailed: handleTaskFailed,
-  });
+  // 使用全局 WebSocket Context 订阅任务更新
+  const { isConnected, subscribe, unsubscribeAll } = useWebSocketContext();
+
+  // 订阅所有任务更新
+  useEffect(() => {
+    if (!isConnected) return;
+
+    const unsubscribeTaskUpdate = subscribe(0, { // 0 表示监听所有任务
+      onUpdate: (data, taskId) => handleTaskUpdate({ ...data, task_id: taskId }),
+    });
+
+    const unsubscribeTaskComplete = subscribe(0, {
+      onComplete: (data, taskId) => handleTaskComplete({ ...data, task_id: taskId }),
+    });
+
+    const unsubscribeTaskFailed = subscribe(0, {
+      onFailed: (error, taskId) => handleTaskFailed({ task_id: taskId, status: 'failed', error_message: error } as TaskProgressData),
+    });
+
+    return () => {
+      unsubscribeTaskUpdate();
+      unsubscribeTaskComplete();
+      unsubscribeTaskFailed();
+    };
+  }, [isConnected, subscribe, handleTaskUpdate, handleTaskComplete, handleTaskFailed]);
 
   // 手动刷新函数
   const refetch = useCallback(async () => {

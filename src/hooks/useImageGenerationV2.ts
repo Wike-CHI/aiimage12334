@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import { generationV2API } from '@/integrations/api/client';
 import { useAuth } from './useAuth';
 import { useToast } from './use-toast';
-import { useTaskListener, TaskProgressData } from './useWebSocket';
+import { useWebSocketContext, useTaskSubscription, TaskProgressData } from '@/context/WebSocketContext';
 
 interface ProcessResult {
   success: boolean;
@@ -345,8 +345,8 @@ export function useImageGenerationV2(
     poll();
   }, [refreshProfile, toast]);
 
-  // 使用 WebSocket 监听任务状态
-  const activeListeners = useRef<Map<number, () => void>>(new Map());
+  // 使用全局 WebSocket Context 监听任务状态
+  const activeCleanupRef = useRef<Map<number, (() => void) | null>>(new Map());
 
   const listenTaskStatus = useCallback((taskId: number, callbacks: {
     onUpdate?: (data: TaskProgressData) => void;
@@ -359,8 +359,12 @@ export function useImageGenerationV2(
       return () => {};
     }
 
-    const { disconnect } = useTaskListener(numericTaskId, {
-      onUpdate: (data) => {
+    // 使用 useTaskSubscription hook 需要在组件内调用
+    // 这里我们直接使用 subscribe 函数
+    const { subscribe } = useWebSocketContext();
+
+    const wrappedCallbacks = {
+      onUpdate: (data: TaskProgressData) => {
         // 更新预估剩余时间
         if (data.status === 'PROCESSING' || data.status === 'PENDING') {
           setEstimatedRemainingTime(data.estimated_remaining_seconds || null);
@@ -368,7 +372,7 @@ export function useImageGenerationV2(
         }
         callbacks.onUpdate?.(data);
       },
-      onComplete: async (data) => {
+      onComplete: async (data: TaskProgressData) => {
         setEstimatedRemainingTime(null);
         await refreshProfile();
 
@@ -379,7 +383,7 @@ export function useImageGenerationV2(
 
         callbacks.onComplete(data);
       },
-      onError: (error) => {
+      onFailed: (error: string) => {
         setEstimatedRemainingTime(null);
         setError(error);
 
@@ -391,23 +395,25 @@ export function useImageGenerationV2(
 
         callbacks.onError?.(error);
       },
-    });
+    };
 
-    // 保存取消监听函数
-    activeListeners.current.set(numericTaskId, disconnect);
+    const cleanup = subscribe(numericTaskId, wrappedCallbacks);
+
+    // 保存清理函数
+    activeCleanupRef.current.set(numericTaskId, cleanup);
 
     // 返回取消监听函数
     return () => {
-      disconnect();
-      activeListeners.current.delete(numericTaskId);
+      cleanup();
+      activeCleanupRef.current.delete(numericTaskId);
     };
   }, [refreshProfile, toast]);
 
   // 清理所有监听器
   useEffect(() => {
     return () => {
-      activeListeners.current.forEach(unsubscribe => unsubscribe());
-      activeListeners.current.clear();
+      activeCleanupRef.current.forEach(cleanup => cleanup?.());
+      activeCleanupRef.current.clear();
     };
   }, []);
 
