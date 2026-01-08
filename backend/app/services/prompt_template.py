@@ -2,6 +2,7 @@
 提示词模板管理系统
 提供服饰图生图的提示词模板定义、拼接和管理功能
 """
+import base64
 import re
 from typing import List, Optional, Dict, Any
 from dataclasses import dataclass, field
@@ -15,6 +16,121 @@ class TemplateCategory(str, Enum):
     ECOMMERCE = "ecommerce"               # 电商化渲染
     ENHANCE = "enhance"                   # 细节增强
     COLOR_CORRECT = "color_correct"       # 颜色校正
+
+
+class ProductCategory(str, Enum):
+    """服装品类分类"""
+    TSHIRT = "tshirt"           # T恤
+    OUTERWEAR = "outerwear"     # 外套/大衣
+    DRESS = "dress"             # 连衣裙
+    PANTS = "pants"             # 裤子
+    ACCESSORY = "accessory"     # 配饰/包包
+    KNITWEAR = "knitwear"       # 针织/毛衣
+    UNKNOWN = "unknown"         # 未知
+
+
+# ==================== 精简版核心提示词 ====================
+
+# 通用基础提示词（所有品类共享）
+BASE_PROMPT = """【背景处理】
+去除所有背景，保留纯白底（RGB 255,255,255）。去除衣架、支架、模特等非产品元素。
+
+【产品形态】
+正视角居中展示，保持原始比例。去除褶皱，保持平整。
+
+【材质保留】
+清晰展示面料纹理。保留品牌logo、标签、纽扣等细节。
+
+【禁止事项】
+不改变产品结构，不添加文字水印，不修改设计元素。
+
+【输出】
+PNG格式，保持原始尺寸。"""
+
+
+# 品类定制提示词
+CATEGORY_PROMPTS = {
+    ProductCategory.TSHIRT: """
+【T恤专项】
+- 保留领口螺纹形状和弹性感
+- 袖口版型准确，不变形
+- 印花/图案位置准确，不偏移
+- 肩线自然，不扭曲
+""",
+    ProductCategory.OUTERWEAR: """
+【外套/大衣专项】
+- 拉链、纽扣完整保留，位置准确
+- 口袋形状和位置准确
+- 帽绳、抽绳自然垂坠
+- 衣领自然立体，不过度扁平
+- 门襟对齐，不偏移
+""",
+    ProductCategory.DRESS: """
+【连衣裙专项】
+- 裙摆自然垂坠，不僵硬
+- 腰线位置准确，不移动
+- 领口形状准确
+- 下摆平整，无明显褶皱堆积
+""",
+    ProductCategory.PANTS: """
+【裤子专项】
+- 裤腿平整对称，不一长一短
+- 口袋位置对称，形状准确
+- 裤腰平整，不扭曲
+- 裤脚自然，不变形
+""",
+    ProductCategory.ACCESSORY: """
+【配饰/包包专项】
+- 金属配件（拉链、扣子、logo）清晰锐利
+- logo位置准确，不变形
+- 纹理清晰，不模糊
+- 保持配饰的立体感
+""",
+    ProductCategory.KNITWEAR: """
+【针织/毛衣专项】
+- 针织纹理清晰可见，不模糊化
+- 保持面料的编织感
+- 纹理方向与产品形态一致
+- 不产生塑料感
+""",
+}
+
+
+def build_category_prompt(category: ProductCategory) -> str:
+    """
+    根据品类构建完整提示词
+
+    Args:
+        category: 服装品类
+
+    Returns:
+        完整的提示词
+    """
+    base = BASE_PROMPT
+    category_prompt = CATEGORY_PROMPTS.get(category, "")
+
+    # 如果是未知品类，不添加专项提示
+    if category == ProductCategory.UNKNOWN:
+        return base
+
+    return base + category_prompt
+
+
+def detect_product_category_from_image(image_data: bytes) -> ProductCategory:
+    """
+    根据图片内容识别服装品类（使用规则匹配）
+
+    Args:
+        image_data: 图片二进制数据
+
+    Returns:
+        识别出的品类
+    """
+    # 这里可以实现基于规则的简单识别
+    # 实际生产中应该调用 Gemini Vision API 进行准确识别
+
+    # 临时返回 unknown，由后续流程中的 Gemini 自动判断
+    return ProductCategory.UNKNOWN
 
 
 @dataclass

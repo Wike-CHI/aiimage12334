@@ -23,6 +23,28 @@ from google.genai.errors import APIError
 logger = logging.getLogger(__name__)
 settings = get_settings()
 
+# Gemini 客户端缓存
+_gemini_client = None
+
+
+def get_gemini_client():
+    """
+    获取 Gemini 客户端（单例模式）
+
+    Returns:
+        genai.Client: Gemini API 客户端
+    """
+    global _gemini_client
+
+    if _gemini_client is None:
+        _gemini_client = genai.Client(
+            api_key=settings.GEMINI_API_KEY,
+            http_options={"base_url": "https://aihubmix.com/gemini"},
+        )
+        logger.info("Gemini 客户端初始化完成")
+
+    return _gemini_client
+
 
 class ImageGenV2Error(Exception):
     """V2 图片生成错误基类"""

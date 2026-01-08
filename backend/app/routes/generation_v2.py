@@ -23,8 +23,10 @@ from app.services.image_gen_v2 import (
     get_available_templates,
     get_template_chains,
     preview_prompt,
-    ImageGenV2Error
+    ImageGenV2Error,
+    get_gemini_client
 )
+# from app.services.prompt_template import ...  # 品类提示词相关导入（保留供将来使用）
 from app.errors import (
     AppException, ErrorCode,
     credits_insufficient_error,
@@ -844,4 +846,6 @@ def get_task_status(
         estimated_remaining_seconds=estimated_remaining,
         error_message=task.error_message
     )
+
+
 
