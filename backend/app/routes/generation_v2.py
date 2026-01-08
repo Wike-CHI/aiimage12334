@@ -27,6 +27,7 @@ from app.services.image_gen_v2 import (
     get_gemini_client
 )
 # from app.services.prompt_template import ...  # 品类提示词相关导入（保留供将来使用）
+from app.services.websocket_manager import ws_manager, TaskProgressData
 from app.errors import (
     AppException, ErrorCode,
     credits_insufficient_error,
@@ -42,6 +43,40 @@ from app.errors import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v2", tags=["generation_v2"])
+
+
+# ============ WebSocket 推送辅助函数 ============
+
+async def notify_task_progress(
+    user_id: int,
+    task_id: int,
+    status: str,
+    progress: int = 0,
+    result_image_url: str = None,
+    elapsed_time: float = None,
+    estimated_remaining: int = None,
+    error_message: str = None
+):
+    """发送任务进度 WebSocket 通知"""
+    try:
+        data = TaskProgressData(
+            task_id=task_id,
+            status=status,
+            progress=progress,
+            result_image_url=result_image_url,
+            elapsed_time=elapsed_time,
+            estimated_remaining_seconds=estimated_remaining,
+            error_message=error_message
+        )
+
+        if status == "completed":
+            await ws_manager.broadcast_task_complete(user_id, task_id, data)
+        elif status == "failed":
+            await ws_manager.broadcast_task_failed(user_id, task_id, error_message or "Unknown error")
+        else:
+            await ws_manager.broadcast_task_update(user_id, data)
+    except Exception as e:
+        logger.error(f"Failed to send WebSocket notification: {e}")
 
 # 配置上传目录
 UPLOAD_DIR = "uploads"
@@ -346,7 +381,18 @@ async def process_upload(
         # 更新数据库记录
         db_task.status = TaskStatus.COMPLETED
         db.commit()
-        
+
+        # WebSocket 推送任务完成
+        result_url = make_image_url(result_path)
+        await notify_task_progress(
+            user_id=current_user.id,
+            task_id=db_task_id,
+            status="completed",
+            progress=100,
+            result_image_url=result_url,
+            elapsed_time=result.get("elapsed_time")
+        )
+
         logger.info(f"用户 {current_user.id} 任务 {db_task_id} 处理成功: {original_filename}")
         
         return ProcessResponse(
@@ -361,12 +407,26 @@ async def process_upload(
         db_task.status = TaskStatus.FAILED
         db_task.error_message = "文件验证失败"
         db.commit()
+        # WebSocket 推送任务失败
+        await notify_task_progress(
+            user_id=current_user.id,
+            task_id=db_task_id,
+            status="failed",
+            error_message="文件验证失败"
+        )
         raise
     except ImageGenV2Error as e:
         logger.error(f"图片处理失败: {e.message}")
         db_task.status = TaskStatus.FAILED
         db_task.error_message = e.message
         db.commit()
+        # WebSocket 推送任务失败
+        await notify_task_progress(
+            user_id=current_user.id,
+            task_id=db_task_id,
+            status="failed",
+            error_message=e.message
+        )
         raise image_processing_failed_error(detail=e.message)
     except Exception as e:
         error_msg = str(e)
@@ -374,6 +434,13 @@ async def process_upload(
         db_task.status = TaskStatus.FAILED
         db_task.error_message = error_msg
         db.commit()
+        # WebSocket 推送任务失败
+        await notify_task_progress(
+            user_id=current_user.id,
+            task_id=db_task_id,
+            status="failed",
+            error_message=error_msg
+        )
         raise internal_error_error(detail=f"处理失败: {error_msg}")
 
 
@@ -643,12 +710,24 @@ async def process_task_background(
     """
     后台处理任务
     """
+    user_id = None
+
     try:
         # 更新状态为 PROCESSING
         task = db_session.query(GenerationTask).filter(GenerationTask.id == task_id).first()
         if task:
+            user_id = task.user_id
             task.status = TaskStatus.PROCESSING
             db_session.commit()
+
+            # WebSocket 推送任务开始处理
+            await notify_task_progress(
+                user_id=user_id,
+                task_id=task_id,
+                status="processing",
+                progress=0,
+                estimated_remaining=30
+            )
 
         logger.info(f"后台任务开始处理: task_id={task_id}")
 
@@ -670,6 +749,17 @@ async def process_task_background(
             task.elapsed_time = result.get("elapsed_time")
             db_session.commit()
 
+            # WebSocket 推送任务完成
+            result_url = make_image_url(result_path)
+            await notify_task_progress(
+                user_id=task.user_id,
+                task_id=task_id,
+                status="completed",
+                progress=100,
+                result_image_url=result_url,
+                elapsed_time=result.get("elapsed_time")
+            )
+
         logger.info(f"后台任务完成: task_id={task_id}")
 
     except Exception as e:
@@ -682,6 +772,14 @@ async def process_task_background(
             task.status = TaskStatus.FAILED
             task.error_message = error_msg
             db_session.commit()
+
+            # WebSocket 推送任务失败
+            await notify_task_progress(
+                user_id=task.user_id,
+                task_id=task_id,
+                status="failed",
+                error_message=error_msg
+            )
 
 
 # ============ 异步任务 API ============

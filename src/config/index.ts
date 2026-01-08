@@ -44,6 +44,33 @@ export const POLLING_CONFIG = {
   maxAttempts: 120,      // 最大轮询次数（120 * 5秒 = 10分钟）
 };
 
+// WebSocket 配置
+export const WEBSOCKET_CONFIG = {
+  // WebSocket URL - 从环境变量读取，或从 API URL 推导
+  url: (() => {
+    const wsUrl = import.meta.env.VITE_WS_URL;
+    if (wsUrl) return wsUrl;
+
+    // 从 API URL 推导: http://host:port -> ws://host:port/ws/notifications
+    const apiUrl = API_CONFIG.baseURL;
+    return apiUrl.replace(/^http/, 'ws') + '/ws/notifications';
+  })(),
+
+  // 重连配置
+  reconnect: {
+    maxAttempts: 5,
+    delay: 1000,         // 初始重连延迟（ms）
+    maxDelay: 5000,      // 最大重连延迟（ms）
+    backoff: 2,          // 退避倍数
+  },
+
+  // 心跳配置
+  heartbeat: {
+    interval: 30000,     // 30秒心跳间隔
+    timeout: 5000,       // 心跳超时时间
+  },
+};
+
 // 图片生成配置
 export const GENERATION_CONFIG = {
   // 支持的宽高比

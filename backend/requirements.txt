@@ -30,3 +30,8 @@ google-genai==1.56.0
 pytest==8.3.4
 pytest-cov==6.1.1
 pytest-asyncio==0.26.0
+
+# WebSocket support (built into FastAPI)
+# - Real-time task progress notifications
+# - Automatic reconnection with exponential backoff
+# - JWT authentication via query parameter

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { generationV2API } from "@/integrations/api/client";
 import { useAuth } from "./useAuth";
+import { useWebSocket, TaskProgressData } from "./useWebSocket";
 
 interface Task {
   id: number;
@@ -19,6 +20,7 @@ export function useTaskHistory(autoRefresh: boolean = false) {
   const [isLoading, setIsLoading] = useState(false);
   const { user } = useAuth();
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
+  const tasksRef = useRef<Task[]>([]);
 
   const fetchTasks = useCallback(async () => {
     if (!user) {
@@ -30,13 +32,76 @@ export function useTaskHistory(autoRefresh: boolean = false) {
     try {
       // 使用V2 API直接从数据库查询，实时反映任务状态
       const response = await generationV2API.getTasks(0, 50);
-      setTasks(response.data.tasks || []);
+      const newTasks = response.data.tasks || [];
+      tasksRef.current = newTasks;
+      setTasks(newTasks);
     } catch (error) {
       console.error("Error fetching tasks:", error);
     } finally {
       setIsLoading(false);
     }
   }, [user]);
+
+  // WebSocket 消息处理器
+  const handleTaskUpdate = useCallback((data: TaskProgressData) => {
+    // 更新本地任务列表中的对应任务状态
+    setTasks(prev => prev.map(task =>
+      task.id === data.task_id
+        ? { ...task, status: data.status }
+        : task
+    ));
+    // 同时更新 ref
+    tasksRef.current = tasksRef.current.map(task =>
+      task.id === data.task_id
+        ? { ...task, status: data.status }
+        : task
+    );
+  }, []);
+
+  const handleTaskComplete = useCallback((data: TaskProgressData) => {
+    // 更新本地任务列表中的对应任务
+    setTasks(prev => prev.map(task =>
+      task.id === data.task_id
+        ? {
+            ...task,
+            status: 'completed',
+            result_image_url: data.result_image_url || task.result_image_url,
+          }
+        : task
+    ));
+    // 同时更新 ref
+    tasksRef.current = tasksRef.current.map(task =>
+      task.id === data.task_id
+        ? {
+            ...task,
+            status: 'completed',
+            result_image_url: data.result_image_url || task.result_image_url,
+          }
+        : task
+    );
+  }, []);
+
+  const handleTaskFailed = useCallback((data: TaskProgressData) => {
+    // 更新本地任务列表中的对应任务状态为失败
+    setTasks(prev => prev.map(task =>
+      task.id === data.task_id
+        ? { ...task, status: 'failed' }
+        : task
+    ));
+    // 同时更新 ref
+    tasksRef.current = tasksRef.current.map(task =>
+      task.id === data.task_id
+        ? { ...task, status: 'failed' }
+        : task
+    );
+  }, []);
+
+  // 启用 WebSocket 监听
+  const { isConnected } = useWebSocket({
+    onTaskUpdate: handleTaskUpdate,
+    onTaskComplete: handleTaskComplete,
+    onTaskFailed: handleTaskFailed,
+  });
 
   // 手动刷新函数
   const refetch = useCallback(async () => {
@@ -46,6 +111,7 @@ export function useTaskHistory(autoRefresh: boolean = false) {
   useEffect(() => {
     if (!user) {
       setTasks([]);
+      tasksRef.current = [];
       if (intervalRef.current) {
         clearInterval(intervalRef.current);
         intervalRef.current = null;
@@ -56,11 +122,11 @@ export function useTaskHistory(autoRefresh: boolean = false) {
     // 初始获取一次
     fetchTasks();
 
-    // V2任务同步完成，但为了一致性仍支持轮询刷新
-    if (autoRefresh) {
+    // 如果 WebSocket 未连接或 autoRefresh 为 true，使用轮询作为补充
+    if (autoRefresh || !isConnected) {
       intervalRef.current = setInterval(() => {
         fetchTasks();
-      }, 2000);
+      }, 5000); // 5秒间隔，比之前更长，因为有 WebSocket 作为主要通知
     }
 
     return () => {
@@ -69,7 +135,7 @@ export function useTaskHistory(autoRefresh: boolean = false) {
         intervalRef.current = null;
       }
     };
-  }, [user, fetchTasks, autoRefresh]);
+  }, [user, fetchTasks, autoRefresh, isConnected]);
 
-  return { tasks, isLoading, refetch };
+  return { tasks, isLoading, refetch, isConnected };
 }

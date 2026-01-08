@@ -1,7 +1,8 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { generationV2API } from '@/integrations/api/client';
 import { useAuth } from './useAuth';
 import { useToast } from './use-toast';
+import { useTaskListener, TaskProgressData } from './useWebSocket';
 
 interface ProcessResult {
   success: boolean;
@@ -49,6 +50,11 @@ interface UseImageGenerationV2Return {
   processImage: (file: File, aspectRatio?: string, imageSize?: string) => Promise<ProcessResult>;
   processImageAsync: (file: File, aspectRatio?: string, imageSize?: string) => Promise<number>;
   pollTaskStatus: (taskId: number, onComplete: (result: ProcessResult) => void, onError?: (error: string) => void) => void;
+  listenTaskStatus: (taskId: number, callbacks: {
+    onUpdate?: (data: TaskProgressData) => void;
+    onComplete: (data: TaskProgressData) => void;
+    onError?: (error: string) => void;
+  }) => () => void;
   isProcessing: boolean;
   elapsedTime: number | null;
   estimatedRemainingTime: number | null;
@@ -339,10 +345,77 @@ export function useImageGenerationV2(
     poll();
   }, [refreshProfile, toast]);
 
+  // 使用 WebSocket 监听任务状态
+  const activeListeners = useRef<Map<number, () => void>>(new Map());
+
+  const listenTaskStatus = useCallback((taskId: number, callbacks: {
+    onUpdate?: (data: TaskProgressData) => void;
+    onComplete: (data: TaskProgressData) => void;
+    onError?: (error: string) => void;
+  }) => {
+    const numericTaskId = Number(taskId);
+    if (isNaN(numericTaskId) || !isFinite(numericTaskId)) {
+      callbacks.onError?.('无效的任务ID');
+      return () => {};
+    }
+
+    const { disconnect } = useTaskListener(numericTaskId, {
+      onUpdate: (data) => {
+        // 更新预估剩余时间
+        if (data.status === 'PROCESSING' || data.status === 'PENDING') {
+          setEstimatedRemainingTime(data.estimated_remaining_seconds || null);
+          setElapsedTime(data.elapsed_time || null);
+        }
+        callbacks.onUpdate?.(data);
+      },
+      onComplete: async (data) => {
+        setEstimatedRemainingTime(null);
+        await refreshProfile();
+
+        toast({
+          title: '生成成功',
+          description: `白底图已生成，耗时 ${data.elapsed_time?.toFixed(1) || 0} 秒`,
+        });
+
+        callbacks.onComplete(data);
+      },
+      onError: (error) => {
+        setEstimatedRemainingTime(null);
+        setError(error);
+
+        toast({
+          title: '生成失败',
+          description: error,
+          variant: 'destructive',
+        });
+
+        callbacks.onError?.(error);
+      },
+    });
+
+    // 保存取消监听函数
+    activeListeners.current.set(numericTaskId, disconnect);
+
+    // 返回取消监听函数
+    return () => {
+      disconnect();
+      activeListeners.current.delete(numericTaskId);
+    };
+  }, [refreshProfile, toast]);
+
+  // 清理所有监听器
+  useEffect(() => {
+    return () => {
+      activeListeners.current.forEach(unsubscribe => unsubscribe());
+      activeListeners.current.clear();
+    };
+  }, []);
+
   return {
     processImage,
     processImageAsync,
     pollTaskStatus,
+    listenTaskStatus,
     isProcessing,
     elapsedTime,
     estimatedRemainingTime,

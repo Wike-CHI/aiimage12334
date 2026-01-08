@@ -10,12 +10,15 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse
+from fastapi import WebSocket, WebSocketDisconnect, Query
 from sqlalchemy import text
 
 from app.routes import auth, generation, generation_v2
 from app.database import engine, Base
 from app.config import get_settings
 from app.services.task_queue import task_queue
+from app.services.websocket_manager import ws_manager
+from app.auth import jwt
 from app.errors import AppException, ErrorCode, internal_error_error
 
 settings = get_settings()
@@ -65,13 +68,62 @@ app.add_middleware(
         "http://127.0.0.1:8080",
         "http://129.211.218.135:34345",  # Tauri 公网
         "http://129.211.218.135",  # 公网访问
-        "http://129.211.218.135:8080",
+        "http://129.211.218.135:8080",         
         "*",  # 生产环境允许所有（可根据需要调整）
     ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.websocket("/ws/notifications")
+async def websocket_notifications(websocket: WebSocket, token: str = Query(...)):
+    """
+    WebSocket 实时通知端点
+
+    连接参数:
+        token: JWT token (通过 query string 传递)
+
+    连接示例:
+        ws://host:8002/ws/notifications?token=your_jwt_token
+
+    消息类型:
+        - task_update: 任务进度更新
+        - task_complete: 任务完成
+        - task_failed: 任务失败
+        - ping/pong: 心跳保活
+    """
+    # 验证 JWT token
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        user_id: int = int(payload.get("sub"))
+        if user_id is None:
+            await websocket.close(code=4001)
+            return
+    except Exception as e:
+        print(f"WebSocket auth failed: {e}")
+        await websocket.close(code=4001)
+        return
+
+    # 建立连接
+    await ws_manager.connect(websocket, user_id)
+
+    try:
+        # 保持连接，接收心跳
+        while True:
+            data = await websocket.receive_text()
+            # 心跳响应
+            if data == "ping":
+                await websocket.send_text("pong")
+    except WebSocketDisconnect:
+        pass
+    except Exception as e:
+        print(f"WebSocket error: {e}")
+    finally:
+        # 断开连接
+        ws_manager.disconnect(websocket, user_id)
+
 
 # 路由
 app.include_router(auth.router, tags=["认证"])
