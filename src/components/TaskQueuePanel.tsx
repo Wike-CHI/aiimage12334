@@ -80,6 +80,15 @@ export function TaskQueuePanel({
   const completedTasks = tasks.filter((t) => t.status === "completed");
   const failedTasks = tasks.filter((t) => t.status === "failed");
 
+  console.log('[TaskQueuePanel] 渲染任务列表:', {
+    totalTasks: tasks.length,
+    pendingCount: pendingTasks.length,
+    processingCount: processingTasks.length,
+    completedCount: completedTasks.length,
+    failedCount: failedTasks.length,
+    tasks: tasks.map(t => ({ id: t.id, status: t.status, progress: t.progress }))
+  });
+
   if (tasks.length === 0) return null;
 
   return (
