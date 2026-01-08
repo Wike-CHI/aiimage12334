@@ -6,9 +6,19 @@
 
 - **桌面应用**: Tauri 2.0 + React 18 + TypeScript
 - **UI 组件**: shadcn/ui + Tailwind CSS
-- **后端服务**: Python FastAPI
+- **后端服务**: Python FastAPI (端口 8001)
+- **反向代理**: Nginx (端口 8002)
 - **数据库**: MySQL
 - **AI 模型**: Gemini 3 Pro Image
+
+## 部署架构
+
+```
+[Tauri 桌面应用] --> [Nginx:8002] --> [FastAPI:8001]
+                        |
+                        +--> /results/ (静态文件，CORS 已配置)
+                        +--> /uploads/ (静态文件)
+```
 
 ## 项目结构
 
@@ -128,32 +138,50 @@ sudo systemctl start whitebg.service
 sudo systemctl status whitebg.service
 ```
 
-#### 4. 配置 Nginx（可选但推荐）
+#### 4. 配置 Nginx（宝塔面板或手动配置）
 
-```bash
-sudo apt install nginx -y
-sudo nano /etc/nginx/sites-available/whitebg
-```
+**方式一：宝塔面板配置**
+
+1. 宝塔面板 → 网站 → 添加站点
+2. 复制 `deploy/nginx.conf` 内容到 `/www/server/panel/vhost/nginx/aiimage.conf`
+3. 重载 Nginx：`nginx -s reload`
+
+**方式二：手动配置 Nginx**
 
 ```nginx
+# /www/server/panel/vhost/nginx/aiimage.conf
 server {
-    listen 80;
-    server_name your_domain.com;
+    listen 8002;
+    server_name 你的服务器IP;
 
+    # API 代理到后端
     location /api/ {
-        proxy_pass http://127.0.0.1:8000;
+        proxy_pass http://127.0.0.1:8001;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
     }
 
+    # 上传图片
     location /uploads/ {
         alias /www/wwwroot/生图网站/aiimage12334/backend/uploads/;
+        expires 7d;
+        add_header Cache-Control "public, immutable";
+        add_header Access-Control-Allow-Origin "*";
+    }
+
+    # 生成结果图片
+    location /results/ {
+        alias /www/wwwroot/生图网站/aiimage12334/backend/results/;
+        expires 7d;
+        add_header Cache-Control "public, immutable";
+        add_header Access-Control-Allow-Origin "*";
     }
 }
 ```
 
 ```bash
-sudo ln -s /etc/nginx/sites-available/whitebg /etc/nginx/sites-enabled/
 sudo nginx -t
 sudo systemctl restart nginx
 ```
@@ -255,13 +283,17 @@ ACCESS_TOKEN_EXPIRE_MINUTES=30
 GEMINI_API_KEY=your_gemini_api_key
 
 # CORS
-FRONTEND_URL=http://localhost:5173
+FRONTEND_URL=http://tauri.localhost
+
+# Backend (for image URLs)
+BACKEND_HOST=129.211.218.135
+BACKEND_PORT=8002
 ```
 
-### 前端（src/.env）
+### 前端（src/.env.production）
 
 ```env
-VITE_API_URL=http://localhost:8000
+VITE_API_URL=http://129.211.218.135:8002
 ```
 
 ## 本地开发
@@ -310,11 +342,22 @@ npm run tauri build
 
 ## 主要功能
 
-- 图片上传与预览
+### 图片处理
+- 图片上传与预览（拖拽上传）
 - AI 智能去除背景（Gemini 3 Pro Image）
-- 可配置输出分辨率和宽高比
-- 用户注册与登录
-- 积分系统
-- 任务历史记录
-- 图片下载
-- 跨平台桌面应用（Tauri）
+- 多模板链式处理（去底 → 标准化 → 电商优化 → 色彩校正）
+- 可配置输出分辨率和宽高比（1:1, 3:4, 4:5, 9:16 等）
+- 图片下载（支持本地存储）
+
+### 用户系统
+- 用户注册与登录（JWT 认证）
+- 积分系统（查看余额、积分明细）
+- 任务历史记录（支持分页查看）
+- 实时任务队列状态显示
+
+### 系统特性
+- 提示词模板管理（可配置优先级）
+- 任务耗时统计
+- 错误提示与异常处理
+- 响应式 UI 设计
+- 跨平台桌面应用（Tauri 2.0，支持 Windows/macOS/Linux）
