@@ -114,6 +114,43 @@ def validate_image(image_path: str) -> bool:
     return True
 
 
+def whiten_background(image: Image.Image) -> Image.Image:
+    """
+    将图片背景强制转换为纯白色
+
+    遍历所有像素，将接近白色的浅色背景强制设为纯白 RGB(255,255,255)
+    保留衣服本身的颜色不受影响。
+
+    Args:
+        image: PIL Image 对象
+
+    Returns:
+        处理后的 Image 对象
+    """
+    # 转换为RGB模式
+    if image.mode != 'RGB':
+        image = image.convert('RGB')
+
+    # 获取图片数据
+    pixels = image.load()
+    width, height = image.size
+
+    # 遍历所有像素
+    for x in range(width):
+        for y in range(height):
+            r, g, b = pixels[x, y]
+            # 判断是否为背景区域（浅色像素）
+            # 条件：R、G、B 都大于阈值，且整体偏白
+            if r > 200 and g > 200 and b > 200:
+                # 检查是否可能是衣服上的白色区域（避免误伤）
+                # 如果 R、G、B 差异很小，说明是中性色，很可能是背景
+                color_diff = max(r, g, b) - min(r, g, b)
+                if color_diff < 30:  # 中性色容差
+                    pixels[x, y] = (255, 255, 255)
+
+    return image
+
+
 def calculate_target_size(aspect_ratio: str, image_size: str) -> tuple[int, int]:
     """
     计算目标图片尺寸
@@ -211,8 +248,8 @@ def process_image_with_gemini(
     
     # 构建提示词
     if template_ids is None:
-        # 使用默认模板链
-        template_ids = ["remove_bg", "standardize", "ecommerce", "color_correct"]
+        # 使用默认模板链（简化版：只使用 ecommerce）
+        template_ids = ["ecommerce"]
     
     # 构建完整提示词
     used_prompt = prompt_manager.build_prompt_from_chain(
@@ -283,6 +320,7 @@ def process_image_with_gemini(
 
                 # 自动修正 EXIF 方向（旋转90度等问题）
                 image = ImageOps.exif_transpose(image)
+                logger.info(f"Gemini返回图片尺寸（修正EXIF后）: {image.size}")
 
                 # 确保输出目录存在
                 output_dir = Path(output_path).parent
@@ -290,6 +328,18 @@ def process_image_with_gemini(
 
                 # 计算目标尺寸并调整
                 target_width, target_height = calculate_target_size(aspect_ratio, image_size)
+                logger.info(f"目标尺寸: {target_width}x{target_height}")
+                logger.info(f"当前图片尺寸: {image.size}")
+
+                # 检测是否需要旋转90度（处理Gemini返回方向错误的情况）
+                image_ratio = image.width / image.height if image.height > 0 else 1
+                target_ratio = target_width / target_height if target_height > 0 else 1
+
+                # 如果宽高比明显不匹配，尝试旋转
+                if abs(image_ratio - target_ratio) > 0.5 and abs(image_ratio - 1/target_ratio) < 0.1:
+                    logger.warning(f"检测到旋转问题，图片比例 {image_ratio:.2f} 与目标 {target_ratio:.2f} 不匹配，尝试旋转90度")
+                    image = image.rotate(-90, expand=True)
+                    logger.info(f"旋转后尺寸: {image.size}")
 
                 if image.size != (target_width, target_height):
                     # 使用 contain 保持比例，用白边填充，避免裁剪
@@ -303,6 +353,10 @@ def process_image_with_gemini(
                     logger.info(f"已添加白边填充，图片尺寸: {image.size}")
                 else:
                     logger.info(f"图片尺寸已符合目标尺寸，无需调整")
+
+                # 在保存前进行背景纯白化处理，确保背景为纯白
+                logger.info(f"执行背景纯白化处理...")
+                image = whiten_background(image)
 
                 image.save(output_path)
                 result_path = output_path
