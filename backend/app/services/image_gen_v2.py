@@ -292,14 +292,17 @@ def process_image_with_gemini(
                 target_width, target_height = calculate_target_size(aspect_ratio, image_size)
 
                 if image.size != (target_width, target_height):
-                    # 使用 fit 保持比例，自动裁剪多余部分，避免拉伸
-                    logger.info(f"调整图片尺寸: {image.size} -> ({target_width}, {target_height}) (使用等比裁剪)")
-                    image = ImageOps.fit(image, (target_width, target_height), Image.Resampling.LANCZOS)
-
-                # 添加白边边距（约 12%），让产品缩小、周围留出更多白边
-                margin = int(min(target_width, target_height) * 0.12)
-                image = ImageOps.expand(image, border=margin, fill='white')
-                logger.info(f"已添加 {margin}px 白边边距")
+                    # 使用 contain 保持比例，用白边填充，避免裁剪
+                    logger.info(f"调整图片尺寸: {image.size} -> ({target_width}, {target_height}) (使用等比缩放+白边填充)")
+                    scaled_image = ImageOps.contain(image, (target_width, target_height), Image.Resampling.LANCZOS)
+                    # 创建白底画布并粘贴缩放后的图片（居中）
+                    image = Image.new('RGB', (target_width, target_height), 'white')
+                    paste_x = (target_width - scaled_image.width) // 2
+                    paste_y = (target_height - scaled_image.height) // 2
+                    image.paste(scaled_image, (paste_x, paste_y))
+                    logger.info(f"已添加白边填充，图片尺寸: {image.size}")
+                else:
+                    logger.info(f"图片尺寸已符合目标尺寸，无需调整")
 
                 image.save(output_path)
                 result_path = output_path
