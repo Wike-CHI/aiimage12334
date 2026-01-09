@@ -30,7 +30,7 @@ interface UseImageGenerationV2Options {
 
 interface UseImageGenerationV2Return {
   processImage: (file: File, aspectRatio?: string, imageSize?: string) => Promise<ProcessResult>;
-  processImageAsync: (file: File, aspectRatio?: string, imageSize?: string) => Promise<number>;
+  processImageAsync: (file: File, aspectRatio?: string, imageSize?: string, promptMode?: string, customPrompt?: string) => Promise<number>;
   pollTaskStatus: (taskId: number, onComplete: (result: ProcessResult) => void, onError?: (error: string) => void) => void;
   listenTaskStatus: (taskId: number, callbacks: {
     onUpdate?: (data: TaskProgressData) => void;
@@ -156,7 +156,13 @@ export function useImageGenerationV2(
   }, [user, refreshProfile, options.customPrompt, options.timeoutSeconds, toast]);
 
   // 异步提交任务
-  const processImageAsync = useCallback(async (file: File, aspectRatio?: string, imageSize?: string): Promise<number> => {
+  const processImageAsync = useCallback(async (
+    file: File,
+    aspectRatio?: string,
+    imageSize?: string,
+    promptMode?: string,
+    customPrompt?: string
+  ): Promise<number> => {
     console.log('[useImageGenerationV2] processImageAsync 开始');
     if (!user) {
       throw new Error('请先登录');
@@ -166,8 +172,15 @@ export function useImageGenerationV2(
       throw new Error('积分不足');
     }
 
+    // 优先使用传入的参数，其次使用 hook 选项
+    const effectivePrompt = customPrompt ?? options.customPrompt ?? '';
+    const effectivePromptMode = promptMode || 'merge';
+
+    console.log('[useImageGenerationV2] 提示词模式:', effectivePromptMode, '自定义提示词:', effectivePrompt ? `${effectivePrompt.length} 字符` : '空');
+
     const result = await generationV2API.submitAsync(file, {
-      customPrompt: options.customPrompt,
+      customPrompt: effectivePrompt,
+      promptMode: effectivePromptMode,
       timeoutSeconds: options.timeoutSeconds || 180,
       aspectRatio: aspectRatio || options.aspectRatio || '1:1',
       imageSize: imageSize || options.imageSize || '1K',

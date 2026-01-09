@@ -188,6 +188,7 @@ def process_image_with_gemini(
     image_path: str,
     output_path: str,
     custom_prompt: Optional[str] = None,
+    prompt_mode: str = "merge",
     timeout_seconds: int = 600,
     aspect_ratio: str = "1:1",
     image_size: str = "1K"
@@ -236,13 +237,24 @@ def process_image_with_gemini(
         )
 
     # 获取 Agent 提示词
-    used_prompt = get_agent_prompt()
+    builtin_prompt = get_agent_prompt()
 
-    # 追加自定义提示词
-    if custom_prompt:
-        used_prompt = used_prompt + "\n\n" + custom_prompt
+    # 根据 prompt_mode 组合提示词
+    if prompt_mode == "builtin":
+        # 仅使用内置提示词
+        used_prompt = builtin_prompt
+    elif prompt_mode == "custom":
+        # 仅使用自定义提示词（如果为空则使用内置）
+        used_prompt = custom_prompt if custom_prompt else builtin_prompt
+    else:
+        # 合并使用（默认）：内置 + 自定义
+        if custom_prompt:
+            used_prompt = builtin_prompt + "\n\n" + custom_prompt
+        else:
+            used_prompt = builtin_prompt
 
     result["used_prompt"] = used_prompt
+    logger.info(f"提示词模式: {prompt_mode}, 最终提示词长度: {len(used_prompt)} 字符")
 
     logger.info(f"使用 Agent 提示词")
     logger.info(f"提示词长度: {len(used_prompt)} 字符")
@@ -316,13 +328,10 @@ def process_image_with_gemini(
                 target_ratio = target_width / target_height if target_height > 0 else 1
                 logger.info(f"图片比例: {image_ratio:.2f}, 目标比例: {target_ratio:.2f}")
 
-                # 检测 Gemini 是否返回了旋转的图片
-                # 对于 1:1 输出，只有当图片明显是横图(宽是高1.5倍以上)时才旋转
-                if target_ratio == 1 and image.width > image.height and image.width / image.height > 1.5:
+                # 强制旋转：如果是横图，旋转为竖图（平铺展示必须是竖向）
+                if image.width > image.height:
                     image = image.rotate(-90, expand=True)
-                    logger.warning(f"检测到横图，旋转校正为竖图，新尺寸: {image.size}")
-                else:
-                    logger.info(f"图片方向正确，无需旋转")
+                    logger.info(f"旋转横图为竖图，新尺寸: {image.size}")
 
                 if image.size != (target_width, target_height):
                     # 使用 contain 保持比例，用白边填充，避免裁剪

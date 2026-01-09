@@ -177,6 +177,7 @@ export const generationV2API = {
     file: File,
     options?: {
       customPrompt?: string;
+      promptMode?: string;
       timeoutSeconds?: number;
       aspectRatio?: string;
       imageSize?: string;
@@ -187,6 +188,9 @@ export const generationV2API = {
 
     if (options?.customPrompt) {
       formData.append('custom_prompt', options.customPrompt);
+    }
+    if (options?.promptMode) {
+      formData.append('prompt_mode', options.promptMode);
     }
     if (options?.timeoutSeconds) {
       formData.append('timeout_seconds', options.timeoutSeconds.toString());

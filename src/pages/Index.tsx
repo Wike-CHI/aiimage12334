@@ -10,6 +10,7 @@ import { ErrorCard } from "@/components/ErrorCard";
 import { EmptyState } from "@/components/EmptyState";
 import { CreditsDisplay } from "@/components/CreditsDisplay";
 import { TaskQueuePanel, TaskStatus } from "@/components/TaskQueuePanel";
+import { PromptSettings } from "@/components/PromptSettings";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
@@ -49,6 +50,10 @@ const Index = () => {
   const [error, setError] = useState<{ type: string; message: string } | null>(null);
   // 任务队列状态
   const [taskQueue, setTaskQueue] = useState<Array<{ id: string; status: TaskStatus; name?: string; progress?: number }>>([]);
+  // 自定义提示词
+  const [customPrompt, setCustomPrompt] = useState('');
+  // 提示词模式
+  const [promptMode, setPromptMode] = useState<'builtin' | 'custom' | 'merge'>('merge');
   // WebSocket 订阅清理函数
   const wsCleanupRef = useRef<(() => void) | null>(null);
   const { toast } = useToast();
@@ -126,8 +131,8 @@ const Index = () => {
       });
 
       // 提交异步任务，获取任务ID
-      console.log('[Index] 开始提交异步任务');
-      const taskId = await processImageAsync(file, ratio, resolution);
+      console.log('[Index] 开始提交异步任务，promptMode:', promptMode, 'customPrompt:', customPrompt ? `${customPrompt.length} 字符` : '空');
+      const taskId = await processImageAsync(file, ratio, resolution, promptMode, customPrompt);
       const taskIdStr = String(taskId);
       console.log('[Index] 任务创建成功，taskId:', taskId);
 
@@ -224,7 +229,7 @@ const Index = () => {
         variant: "destructive",
       });
     }
-  }, [originalImage, user, navigate, ratio, resolution, processImageAsync, listenTaskStatus]);
+  }, [originalImage, user, navigate, ratio, resolution, promptMode, customPrompt, processImageAsync, listenTaskStatus]);
 
   const handleClear = useCallback(() => {
     setOriginalImage(null);
@@ -417,33 +422,43 @@ const Index = () => {
 
                     {/* Options */}
                     {!processedImage && !error && (
-                      <div className="flex flex-wrap justify-center gap-6 pt-2">
-                        <div className="flex flex-col gap-2">
-                          <Label className="text-sm text-muted-foreground">输出分辨率</Label>
-                          <Select value={resolution} onValueChange={setResolution} disabled={isProcessing}>
-                            <SelectTrigger className="w-40">
-                              <SelectValue placeholder="选择分辨率" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {RESOLUTIONS.map((r) => (
-                                <SelectItem key={r.value} value={String(r.value)}>{r.label}</SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
+                      <div className="space-y-4 pt-2">
+                        <div className="flex flex-wrap justify-center gap-6">
+                          <div className="flex flex-col gap-2">
+                            <Label className="text-sm text-muted-foreground">输出分辨率</Label>
+                            <Select value={resolution} onValueChange={setResolution} disabled={isProcessing}>
+                              <SelectTrigger className="w-40">
+                                <SelectValue placeholder="选择分辨率" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {RESOLUTIONS.map((r) => (
+                                  <SelectItem key={r.value} value={String(r.value)}>{r.label}</SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div className="flex flex-col gap-2">
+                            <Label className="text-sm text-muted-foreground">输出比例</Label>
+                            <Select value={ratio} onValueChange={setRatio} disabled={isProcessing}>
+                              <SelectTrigger className="w-40">
+                                <SelectValue placeholder="选择比例" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {RATIOS.map((r) => (
+                                  <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
                         </div>
-                        <div className="flex flex-col gap-2">
-                          <Label className="text-sm text-muted-foreground">输出比例</Label>
-                          <Select value={ratio} onValueChange={setRatio} disabled={isProcessing}>
-                            <SelectTrigger className="w-40">
-                              <SelectValue placeholder="选择比例" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {RATIOS.map((r) => (
-                                <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
+                        {/* 自定义提示词设置 */}
+                        <PromptSettings
+                          value={customPrompt}
+                          onChange={setCustomPrompt}
+                          promptMode={promptMode}
+                          onPromptModeChange={setPromptMode}
+                          disabled={isProcessing}
+                        />
                       </div>
                     )}
 

@@ -120,7 +120,8 @@ class ProcessRequest(BaseModel):
     """图片处理请求"""
     image_path: Optional[str] = Field(None, description="图片路径（与upload_file二选一）")
     output_path: Optional[str] = Field(None, description="输出路径（可选，自动生成）")
-    custom_prompt: Optional[str] = Field(None, description="自定义提示词（追加到 Agent 提示词后）")
+    custom_prompt: Optional[str] = Field(None, description="自定义提示词")
+    prompt_mode: str = Field("merge", description="提示词模式: builtin=仅内置, custom=仅自定义, merge=合并")
     timeout_seconds: int = Field(180, ge=30, le=600, description="超时时间（秒）")
     aspect_ratio: str = Field("1:1", description="宽高比")
     image_size: str = Field("1K", description="分辨率")
@@ -128,7 +129,8 @@ class ProcessRequest(BaseModel):
 
 class ProcessUploadRequest(BaseModel):
     """图片上传处理请求"""
-    custom_prompt: Optional[str] = Field(None, description="自定义提示词（追加到 Agent 提示词后）")
+    custom_prompt: Optional[str] = Field(None, description="自定义提示词")
+    prompt_mode: str = Field("merge", description="提示词模式: builtin=仅内置, custom=仅自定义, merge=合并")
     timeout_seconds: int = Field(180, ge=30, le=600, description="超时时间（秒）")
     aspect_ratio: str = Field("1:1", description="宽高比")
     image_size: str = Field("1K", description="分辨率")
@@ -210,6 +212,7 @@ async def process_image(
 async def process_upload(
     file: UploadFile = File(...),
     custom_prompt: Optional[str] = Form(None),
+    prompt_mode: str = Form("merge"),
     timeout_seconds: int = Form(180),
     aspect_ratio: str = Form("1:1"),
     image_size: str = Form("1K"),
@@ -312,10 +315,12 @@ async def process_upload(
 
         # 执行图片处理（传递宽高比和分辨率参数）
         logger.info(f"开始调用 Gemini API...")
+        logger.info(f"提示词模式: {prompt_mode}, custom_prompt: {custom_prompt[:50] if custom_prompt else '空'}...")
         result = process_image_with_gemini(
             image_path=original_path,
             output_path=result_path,
             custom_prompt=custom_prompt,
+            prompt_mode=prompt_mode,
             timeout_seconds=timeout_seconds,
             aspect_ratio=aspect_ratio,
             image_size=image_size
@@ -572,6 +577,7 @@ async def process_task_background(
     original_path: str,
     result_path: str,
     custom_prompt: Optional[str],
+    prompt_mode: str,
     timeout_seconds: int,
     aspect_ratio: str,
     image_size: str,
@@ -647,11 +653,13 @@ async def process_task_background(
 
         # 在线程池中执行图片处理（避免阻塞事件循环）
         logger.info(f"[API_CALL] [Task {task_id}] 开始调用 process_image_with_gemini")
+        logger.info(f"[PROMPT] [Task {task_id}] 提示词模式: {prompt_mode}, custom_prompt: {custom_prompt[:50] if custom_prompt else '空'}...")
         result = await asyncio.to_thread(
             process_image_with_gemini,
             image_path=original_path,
             output_path=result_path,
             custom_prompt=custom_prompt,
+            prompt_mode=prompt_mode,
             timeout_seconds=timeout_seconds,
             aspect_ratio=aspect_ratio,
             image_size=image_size
@@ -736,6 +744,7 @@ async def process_task_background(
 async def create_async_task(
     file: UploadFile = File(...),
     custom_prompt: Optional[str] = Form(None),
+    prompt_mode: str = Form("merge"),
     timeout_seconds: int = Form(180),
     aspect_ratio: str = Form("1:1"),
     image_size: str = Form("1K"),
@@ -819,6 +828,7 @@ async def create_async_task(
                 original_path=original_path,
                 result_path=result_path,
                 custom_prompt=custom_prompt,
+                prompt_mode=prompt_mode,
                 timeout_seconds=timeout_seconds,
                 aspect_ratio=aspect_ratio,
                 image_size=image_size
