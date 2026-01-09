@@ -140,9 +140,7 @@ export function TaskHistory({ tasks, onRefresh, onSelect }: TaskHistoryProps) {
       const blob = await response.blob();
       const file = new File([blob], "retry.png", { type: "image/png" });
 
-      const result = await generationV2API.process(file, {
-        templateIds: ['ecommerce']
-      });
+      const result = await generationV2API.process(file);
 
       if (result.data.success) {
         toast({

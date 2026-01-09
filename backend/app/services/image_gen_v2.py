@@ -1,21 +1,18 @@
 """
 V2 图片生成服务
-基于 Gemini API 的服饰图生图功能，支持提示词模板链拼接
+基于 Gemini API 的服饰图生图功能，使用单一 Agent 提示词
 """
 import base64
 import io
 import logging
 import time
 from pathlib import Path
-from typing import Optional, List, Dict, Any
+from typing import Optional, Dict
 
 from PIL import Image, ImageOps
 
 from app.config import get_settings
-from app.services.prompt_template import (
-    get_prompt_manager,
-    PromptTemplateManager
-)
+from app.services.prompt_template import get_agent_prompt
 from google import genai
 from google.genai import types
 from google.genai.errors import APIError
@@ -141,11 +138,11 @@ def whiten_background(image: Image.Image) -> Image.Image:
             r, g, b = pixels[x, y]
             # 判断是否为背景区域（浅色像素）
             # 条件：R、G、B 都大于阈值，且整体偏白
-            if r > 200 and g > 200 and b > 200:
+            if r > 240 and g > 240 and b > 240:
                 # 检查是否可能是衣服上的白色区域（避免误伤）
                 # 如果 R、G、B 差异很小，说明是中性色，很可能是背景
                 color_diff = max(r, g, b) - min(r, g, b)
-                if color_diff < 30:  # 中性色容差
+                if color_diff < 50:  # 中性色容差
                     pixels[x, y] = (255, 255, 255)
 
     return image
@@ -190,7 +187,6 @@ def calculate_target_size(aspect_ratio: str, image_size: str) -> tuple[int, int]
 def process_image_with_gemini(
     image_path: str,
     output_path: str,
-    template_ids: Optional[List[str]] = None,
     custom_prompt: Optional[str] = None,
     timeout_seconds: int = 600,
     aspect_ratio: str = "1:1",
@@ -198,25 +194,22 @@ def process_image_with_gemini(
 ) -> Dict[str, Any]:
     """
     使用 Gemini API 处理图片（生成白底图）
-    
-    基于 test_ai.py 重构，支持提示词模板链拼接
-    
+    使用单一 Agent 提示词
+
     Args:
         image_path: 输入图片路径
         output_path: 输出图片路径
-        template_ids: 提示词模板ID列表
-        custom_prompt: 自定义提示词（追加到模板后）
+        custom_prompt: 自定义提示词（追加到 Agent 提示词后）
         timeout_seconds: 超时时间（秒）
         aspect_ratio: 宽高比，支持: "1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9"
         image_size: 分辨率，支持: "1K", "2K", "4K"
-        
+
     Returns:
         Dict: 包含以下键：
             - success: 是否成功
             - result_path: 输出图片路径
             - elapsed_time: 耗时（秒）
             - used_prompt: 使用的完整提示词
-            - used_templates: 使用的模板ID列表
     """
     start_time = time.time()
     result = {
@@ -224,47 +217,34 @@ def process_image_with_gemini(
         "result_path": None,
         "elapsed_time": 0,
         "used_prompt": "",
-        "used_templates": [],
         "error_message": None
     }
-    
+
     # 验证输入图片
     validate_image(image_path)
-    
+
     # 读取图片
     logger.info(f"读取图片: {image_path}")
     with open(image_path, "rb") as image_file:
         image_data = base64.b64encode(image_file.read()).decode("utf-8")
-    
+
     # 检查API密钥
     if not settings.GEMINI_API_KEY:
         raise APIKeyError(
             "GEMINI_API_KEY 未配置",
             code="MISSING_API_KEY"
         )
-    
-    # 获取提示词管理器
-    prompt_manager = get_prompt_manager()
-    
-    # 构建提示词
-    if template_ids is None:
-        # 使用默认模板链（简化版：只使用 ecommerce）
-        template_ids = ["ecommerce"]
-    
-    # 构建完整提示词
-    used_prompt = prompt_manager.build_prompt_from_chain(
-        template_ids,
-        product_category="服装"
-    )
-    
+
+    # 获取 Agent 提示词
+    used_prompt = get_agent_prompt()
+
     # 追加自定义提示词
     if custom_prompt:
         used_prompt = used_prompt + "\n\n" + custom_prompt
-    
+
     result["used_prompt"] = used_prompt
-    result["used_templates"] = template_ids
-    
-    logger.info(f"使用模板: {template_ids}")
+
+    logger.info(f"使用 Agent 提示词")
     logger.info(f"提示词长度: {len(used_prompt)} 字符")
     logger.info(f"生成参数: aspect_ratio={aspect_ratio}, image_size={image_size}")
     
@@ -331,15 +311,18 @@ def process_image_with_gemini(
                 logger.info(f"目标尺寸: {target_width}x{target_height}")
                 logger.info(f"当前图片尺寸: {image.size}")
 
-                # 检测是否需要旋转90度（处理Gemini返回方向错误的情况）
+                # 记录比例用于调试
                 image_ratio = image.width / image.height if image.height > 0 else 1
                 target_ratio = target_width / target_height if target_height > 0 else 1
+                logger.info(f"图片比例: {image_ratio:.2f}, 目标比例: {target_ratio:.2f}")
 
-                # 如果宽高比明显不匹配，尝试旋转
-                if abs(image_ratio - target_ratio) > 0.5 and abs(image_ratio - 1/target_ratio) < 0.1:
-                    logger.warning(f"检测到旋转问题，图片比例 {image_ratio:.2f} 与目标 {target_ratio:.2f} 不匹配，尝试旋转90度")
+                # 检测 Gemini 是否返回了旋转的图片
+                # 对于 1:1 输出，只有当图片明显是横图(宽是高1.5倍以上)时才旋转
+                if target_ratio == 1 and image.width > image.height and image.width / image.height > 1.5:
                     image = image.rotate(-90, expand=True)
-                    logger.info(f"旋转后尺寸: {image.size}")
+                    logger.warning(f"检测到横图，旋转校正为竖图，新尺寸: {image.size}")
+                else:
+                    logger.info(f"图片方向正确，无需旋转")
 
                 if image.size != (target_width, target_height):
                     # 使用 contain 保持比例，用白边填充，避免裁剪
@@ -354,9 +337,8 @@ def process_image_with_gemini(
                 else:
                     logger.info(f"图片尺寸已符合目标尺寸，无需调整")
 
-                # 在保存前进行背景纯白化处理，确保背景为纯白
-                logger.info(f"执行背景纯白化处理...")
-                image = whiten_background(image)
+                # Gemini 已直接生成纯白背景，无需额外 whiten_background 处理
+                logger.info(f"跳过 whiten_background，保留 Gemini 原生输出")
 
                 image.save(output_path)
                 result_path = output_path
@@ -427,95 +409,11 @@ def process_image_with_gemini(
         )
 
 
-def process_image_with_template_chain(
-    image_path: str,
-    output_path: str,
-    template_chain_id: str = "default",
-    custom_prompt: Optional[str] = None,
-    timeout_seconds: int = 600
-) -> Dict[str, Any]:
+def preview_prompt() -> str:
     """
-    使用预设模板链处理图片
-    
-    Args:
-        image_path: 输入图片路径
-        output_path: 输出图片路径
-        template_chain_id: 模板链ID（使用预设的链）
-        custom_prompt: 自定义提示词
-        timeout_seconds: 超时时间
-        
+    预览 Agent 提示词
+
     Returns:
-        Dict: 处理结果
+        str: Agent 提示词内容
     """
-    prompt_manager = get_prompt_manager()
-    chain = prompt_manager.get_chain(template_chain_id)
-    
-    if not chain:
-        raise ImageGenV2Error(
-            f"模板链不存在: {template_chain_id}",
-            code="CHAIN_NOT_FOUND"
-        )
-    
-    # 构建提示词
-    used_prompt = chain.build_prompt(product_category="服装")
-    
-    if custom_prompt:
-        used_prompt = used_prompt + "\n\n" + custom_prompt
-    
-    # 执行处理
-    return process_image_with_gemini(
-        image_path=image_path,
-        output_path=output_path,
-        custom_prompt=custom_prompt,
-        timeout_seconds=timeout_seconds
-    )
-
-
-def get_available_templates() -> List[Dict[str, Any]]:
-    """
-    获取可用的提示词模板列表
-    
-    Returns:
-        List[Dict]: 模板信息列表
-    """
-    prompt_manager = get_prompt_manager()
-    templates = prompt_manager.list_templates()
-    
-    return [
-        {
-            "template_id": t.template_id,
-            "name": t.name,
-            "category": t.category.value,
-            "description": t.description,
-            "priority": t.priority,
-            "enabled": t.enabled
-        }
-        for t in templates
-    ]
-
-
-def get_template_chains() -> List[Dict[str, Any]]:
-    """
-    获取可用的模板链列表
-    
-    Returns:
-        List[Dict]: 链信息列表
-    """
-    prompt_manager = get_prompt_manager()
-    return prompt_manager.list_chains()
-
-
-def preview_prompt(template_ids: List[str], **kwargs) -> str:
-    """
-    预览组合后的提示词
-    
-    Args:
-        template_ids: 模板ID列表
-        **kwargs: 变量参数
-        
-    Returns:
-        str: 预览的提示词
-    """
-    prompt_manager = get_prompt_manager()
-    return prompt_manager.build_prompt_from_chain(template_ids, **kwargs)
-
+    return get_agent_prompt()

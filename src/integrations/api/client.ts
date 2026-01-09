@@ -17,7 +17,7 @@ export const imageUtils = {
   getUploadUrl: (path: string | null | undefined): string => {
     return IMAGE_CONFIG.getImageUrl(path);
   },
-  
+
   // 获取结果图片的完整 URL
   getResultUrl: (path: string | null | undefined): string => {
     return IMAGE_CONFIG.getImageUrl(path);
@@ -107,7 +107,6 @@ export const generationV2API = {
   process: (
     file: File,
     options?: {
-      templateIds?: string[];
       customPrompt?: string;
       timeoutSeconds?: number;
       aspectRatio?: string;
@@ -116,29 +115,24 @@ export const generationV2API = {
   ) => {
     const formData = new FormData();
     formData.append('file', file);
-    
-    // 发送模板ID列表为JSON字符串
-    if (options?.templateIds) {
-      formData.append('template_ids', JSON.stringify(options.templateIds));
-    }
-    
+
     if (options?.customPrompt) {
       formData.append('custom_prompt', options.customPrompt);
     }
-    
+
     if (options?.timeoutSeconds) {
       formData.append('timeout_seconds', options.timeoutSeconds.toString());
     }
-    
+
     // 发送宽高比和分辨率
     if (options?.aspectRatio) {
       formData.append('aspect_ratio', options.aspectRatio);
     }
-    
+
     if (options?.imageSize) {
       formData.append('image_size', options.imageSize);
     }
-    
+
     return api.post('/api/v2/process/upload', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
     });
@@ -151,38 +145,10 @@ export const generationV2API = {
   getConfig: () => api.get('/api/v2/config'),
 
   /**
-   * 预览组合后的提示词
-   * @param templateIds - 模板ID列表
-   * @param productCategory - 产品类目
-   * @returns Promise with preview result
+   * 预览 Agent 提示词
+   * @returns Promise with prompt preview
    */
-  previewPrompt: (templateIds: string[], productCategory: string = "服装") =>
-    api.post('/api/v2/preview', { template_ids: templateIds, product_category: productCategory }),
-
-  /**
-   * 获取可用的提示词模板列表
-   * @returns Promise with template list
-   */
-  getTemplates: () => api.get('/api/v2/templates'),
-
-  /**
-   * 获取模板详情
-   * @param templateId - 模板ID
-   * @returns Promise with template detail
-   */
-  getTemplate: (templateId: string) => api.get(`/api/v2/templates/${templateId}`),
-
-  /**
-   * 获取可用的模板链列表
-   * @returns Promise with chain list
-   */
-  getChains: () => api.get('/api/v2/chains'),
-
-  /**
-   * 获取模板分类列表
-   * @returns Promise with category list
-   */
-  getCategories: () => api.get('/api/v2/templates/categories'),
+  previewPrompt: () => api.get('/api/v2/prompt/preview'),
 
   /**
    * 获取V2任务历史（直接从数据库查询，实时反映状态）
@@ -210,7 +176,6 @@ export const generationV2API = {
   submitAsync: (
     file: File,
     options?: {
-      templateIds?: string[];
       customPrompt?: string;
       timeoutSeconds?: number;
       aspectRatio?: string;
@@ -220,9 +185,6 @@ export const generationV2API = {
     const formData = new FormData();
     formData.append('file', file);
 
-    if (options?.templateIds) {
-      formData.append('template_ids', JSON.stringify(options.templateIds));
-    }
     if (options?.customPrompt) {
       formData.append('custom_prompt', options.customPrompt);
     }

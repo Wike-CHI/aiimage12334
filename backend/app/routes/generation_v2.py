@@ -1,6 +1,6 @@
 """
 V2 图片生成路由
-提供服饰图生图的同步/异步处理接口，支持提示词模板链管理
+提供服饰图生图的同步/异步处理接口，使用单一 Agent 提示词
 """
 import os
 import uuid
@@ -19,15 +19,11 @@ from app.models import User, GenerationTask, TaskStatus
 from app.database import get_db, SessionLocal
 from app.services.image_gen_v2 import (
     process_image_with_gemini,
-    process_image_with_template_chain,
-    get_available_templates,
-    get_template_chains,
     preview_prompt,
     ImageGenV2Error,
     get_gemini_client
 )
-# from app.services.prompt_template import ...  # 品类提示词相关导入（保留供将来使用）
-from app.services.websocket_manager import ws_manager, TaskProgressData
+from app.services.prompt_template import get_agent_prompt
 from app.errors import (
     AppException, ErrorCode,
     credits_insufficient_error,
@@ -36,7 +32,6 @@ from app.errors import (
     image_processing_failed_error,
     task_not_found_error,
     validation_error_error,
-    network_error_error,
     internal_error_error
 )
 
@@ -59,6 +54,7 @@ async def notify_task_progress(
 ):
     """发送任务进度 WebSocket 通知"""
     try:
+        from app.services.websocket_manager import ws_manager, TaskProgressData
         data = TaskProgressData(
             task_id=task_id,
             status=status,
@@ -124,44 +120,18 @@ class ProcessRequest(BaseModel):
     """图片处理请求"""
     image_path: Optional[str] = Field(None, description="图片路径（与upload_file二选一）")
     output_path: Optional[str] = Field(None, description="输出路径（可选，自动生成）")
-    template_ids: Optional[str] = Field(
-        default='["remove_bg", "standardize", "ecommerce", "color_correct"]',
-        description="提示词模板ID列表（JSON字符串）"
-    )
-    custom_prompt: Optional[str] = Field(None, description="自定义提示词（追加到模板后）")
+    custom_prompt: Optional[str] = Field(None, description="自定义提示词（追加到 Agent 提示词后）")
     timeout_seconds: int = Field(180, ge=30, le=600, description="超时时间（秒）")
-    
-    @property
-    def parsed_template_ids(self) -> List[str]:
-        """解析模板ID列表"""
-        if isinstance(self.template_ids, str):
-            import json
-            try:
-                return json.loads(self.template_ids)
-            except json.JSONDecodeError:
-                return ["remove_bg", "standardize", "ecommerce", "color_correct"]
-        return self.template_ids or ["remove_bg", "standardize", "ecommerce", "color_correct"]
+    aspect_ratio: str = Field("1:1", description="宽高比")
+    image_size: str = Field("1K", description="分辨率")
 
 
 class ProcessUploadRequest(BaseModel):
     """图片上传处理请求"""
-    template_ids: Optional[str] = Field(
-        default='["remove_bg", "standardize", "ecommerce", "color_correct"]',
-        description="提示词模板ID列表（JSON字符串）"
-    )
-    custom_prompt: Optional[str] = Field(None, description="自定义提示词（追加到模板后）")
+    custom_prompt: Optional[str] = Field(None, description="自定义提示词（追加到 Agent 提示词后）")
     timeout_seconds: int = Field(180, ge=30, le=600, description="超时时间（秒）")
-    
-    @property
-    def parsed_template_ids(self) -> List[str]:
-        """解析模板ID列表"""
-        if isinstance(self.template_ids, str):
-            import json
-            try:
-                return json.loads(self.template_ids)
-            except json.JSONDecodeError:
-                return ["remove_bg", "standardize", "ecommerce", "color_correct"]
-        return self.template_ids or ["remove_bg", "standardize", "ecommerce", "color_correct"]
+    aspect_ratio: str = Field("1:1", description="宽高比")
+    image_size: str = Field("1K", description="分辨率")
 
 
 class ProcessResponse(BaseModel):
@@ -170,38 +140,12 @@ class ProcessResponse(BaseModel):
     task_id: Optional[int] = None  # 数据库任务ID
     result_image: Optional[str] = None  # Base64 编码的图片数据
     elapsed_time: Optional[float] = None
-    used_templates: Optional[List[str]] = None
     error_message: Optional[str] = None
-
-
-class TemplateInfo(BaseModel):
-    """模板信息"""
-    template_id: str
-    name: str
-    category: str
-    description: str
-    priority: int
-    enabled: bool
-
-
-class TemplateChainInfo(BaseModel):
-    """模板链信息"""
-    chain_id: str
-    name: str
-    template_count: int
-    template_ids: List[str]
-
-
-class PromptPreviewRequest(BaseModel):
-    """提示词预览请求"""
-    template_ids: List[str]
-    product_category: str = Field("服装", description="产品类目")
 
 
 class PromptPreviewResponse(BaseModel):
     """提示词预览响应"""
     prompt: str
-    template_ids: List[str]
     char_count: int
 
 
@@ -214,12 +158,11 @@ async def process_image(
 ):
     """
     处理图片（同步接口）
-    
-    根据指定的提示词模板链处理图片，生成白底图
-    
+
+    使用 Agent 提示词处理图片，生成白底图
+
     - 需要用户认证
     - 同步处理，直接返回结果
-    - 支持自定义模板链组合
     """
     # 检查图片路径
     if not request.image_path:
@@ -227,33 +170,34 @@ async def process_image(
             message="需要提供 image_path 或上传图片文件",
             details={"field": "image_path"}
         )
-    
+
     # 生成输出路径
     if not request.output_path:
         task_id = str(uuid.uuid4())
         ext = ".png"
         result_filename = f"{task_id}_result{ext}"
         request.output_path = os.path.join(RESULT_DIR, result_filename)
-    
+
     try:
         # 执行图片处理
         result = process_image_with_gemini(
             image_path=request.image_path,
             output_path=request.output_path,
-            template_ids=request.parsed_template_ids,
             custom_prompt=request.custom_prompt,
-            timeout_seconds=request.timeout_seconds
+            timeout_seconds=request.timeout_seconds,
+            aspect_ratio=request.aspect_ratio,
+            image_size=request.image_size
         )
-        
+
         logger.info(f"用户 {current_user.id} 图片处理成功: {request.image_path}")
-        
+
         return ProcessResponse(
             success=result["success"],
-            result_path=result["result_path"],
+            task_id=result.get("task_id"),
             elapsed_time=result["elapsed_time"],
-            used_templates=result["used_templates"]
+            error_message=result.get("error_message")
         )
-        
+
     except ImageGenV2Error as e:
         logger.error(f"图片处理失败: {e.message}")
         raise image_processing_failed_error(detail=e.message)
@@ -265,7 +209,6 @@ async def process_image(
 @router.post("/process/upload", response_model=ProcessResponse)
 async def process_upload(
     file: UploadFile = File(...),
-    template_ids: Optional[str] = Form('["remove_bg", "standardize", "ecommerce", "color_correct"]'),
     custom_prompt: Optional[str] = Form(None),
     timeout_seconds: int = Form(180),
     aspect_ratio: str = Form("1:1"),
@@ -275,9 +218,9 @@ async def process_upload(
 ):
     """
     上传并处理图片（同步接口）
-    
+
     上传图片后立即处理，生成白底图
-    
+
     - 需要用户认证
     - 支持的最大图片大小: 10MB
     - 支持的图片格式: JPEG, PNG, WebP, TIFF
@@ -286,54 +229,46 @@ async def process_upload(
     - 自动保存任务记录到数据库
     - 生成图片名称使用任务ID
     """
-    # 解析模板ID列表
-    import json
-    try:
-        parsed_template_ids = json.loads(template_ids) if template_ids else ["remove_bg", "standardize", "ecommerce", "color_correct"]
-    except json.JSONDecodeError:
-        parsed_template_ids = ["remove_bg", "standardize", "ecommerce", "color_correct"]
-    
     logger.info(f"收到上传请求: filename={file.filename}, content_type={file.content_type}")
-    logger.info(f"模板ID: {parsed_template_ids}")
     logger.info(f"生成参数: aspect_ratio={aspect_ratio}, image_size={image_size}")
-    
+
     # 验证文件类型
     # 允许常见图片格式，包括浏览器可能发送的各种变体
     allowed_types = {
-        'image/jpeg', 'image/jpg', 
-        'image/png', 
-        'image/webp', 
+        'image/jpeg', 'image/jpg',
+        'image/png',
+        'image/webp',
         'image/tiff', 'image/tif',
         'image/heic', 'image/heif',
         'application/octet-stream'  # 某些浏览器可能发送这个
     }
     content_type = file.content_type or ''
     logger.info(f"验证文件类型: {content_type} (允许: {allowed_types})")
-    
+
     # 如果不在允许列表中，尝试基于扩展名判断
     if content_type not in allowed_types:
         filename = file.filename or ''
         ext = filename.lower().split('.')[-1] if '.' in filename else ''
         image_extensions = {'jpg', 'jpeg', 'png', 'webp', 'tiff', 'tif', 'heic', 'heif'}
-        
+
         if ext in image_extensions:
             logger.info(f"基于扩展名 {ext} 接受文件")
         else:
             logger.warning(f"不支持的文件类型: {content_type}, 扩展名: {ext}")
             raise invalid_image_format_error(content_type=content_type)
-    
+
     # 获取文件扩展名
     ext = os.path.splitext(file.filename or '.jpg')[1] or '.jpg'
-    
+
     # 检查用户积分是否足够
     if current_user.credits < 1:
         logger.warning(f"用户 {current_user.id} 积分不足: {current_user.credits}")
         raise credits_insufficient_error()
-    
+
     # 扣除积分
     current_user.credits -= 1
     logger.info(f"扣除用户 {current_user.id} 积分，剩余: {current_user.credits}")
-    
+
     # 创建数据库任务记录（先生成任务记录获取ID）
     db_task = GenerationTask(
         user_id=current_user.id,
@@ -349,20 +284,20 @@ async def process_upload(
     db.commit()
     db.refresh(db_task)
     db_task_id = db_task.id
-    
+
     logger.info(f"创建任务记录: task_id={db_task_id}")
-    
+
     # 使用任务ID生成文件名
     original_filename = f"{db_task_id}_original{ext}"
     result_filename = f"{db_task_id}_result.png"
-    
+
     original_path = os.path.join(UPLOAD_DIR, original_filename)
     result_path = os.path.join(RESULT_DIR, result_filename)
-    
+
     # 更新数据库中的路径
     db_task.original_image_url = original_path
     db.commit()
-    
+
     try:
         # 保存上传的文件
         logger.info(f"开始保存文件: {original_path}")
@@ -374,19 +309,18 @@ async def process_upload(
                 raise image_too_large_error(size_mb=len(content) / (1024 * 1024), max_mb=10)
             await f.write(content)
         logger.info(f"文件保存完成: {original_path}")
-        
+
         # 执行图片处理（传递宽高比和分辨率参数）
         logger.info(f"开始调用 Gemini API...")
         result = process_image_with_gemini(
             image_path=original_path,
             output_path=result_path,
-            template_ids=parsed_template_ids,
             custom_prompt=custom_prompt,
             timeout_seconds=timeout_seconds,
             aspect_ratio=aspect_ratio,
             image_size=image_size
         )
-        
+
         # 更新数据库记录
         db_task.status = TaskStatus.COMPLETED
         db.commit()
@@ -403,15 +337,14 @@ async def process_upload(
         )
 
         logger.info(f"用户 {current_user.id} 任务 {db_task_id} 处理成功: {original_filename}")
-        
+
         return ProcessResponse(
             success=True,
             task_id=db_task_id,
             result_image=result.get("result_image"),
-            elapsed_time=result.get("elapsed_time"),
-            used_templates=result.get("used_templates")
+            elapsed_time=result.get("elapsed_time")
         )
-        
+
     except AppException:
         db_task.status = TaskStatus.FAILED
         db_task.error_message = "文件验证失败"
@@ -453,94 +386,22 @@ async def process_upload(
         raise internal_error_error(detail=f"处理失败: {error_msg}")
 
 
-@router.get("/templates", response_model=List[TemplateInfo])
-def list_templates(current_user: User = Depends(get_current_user)):
-    """
-    获取可用的提示词模板列表
-    
-    - 需要用户认证
-    - 返回所有已注册的模板
-    """
-    templates = get_available_templates()
-    return templates
-
-
-@router.get("/templates/{template_id}", response_model=TemplateInfo)
-def get_template(
-    template_id: str,
-    current_user: User = Depends(get_current_user)
-):
-    """
-    获取指定模板的详细信息
-    
-    - 需要用户认证
-    """
-    from app.services.prompt_template import get_prompt_manager
-    
-    prompt_manager = get_prompt_manager()
-    template_info = prompt_manager.get_template_info(template_id)
-    
-    if not template_info:
-        raise validation_error_error(
-            message=f"模板不存在: {template_id}",
-            details={"template_id": template_id}
-        )
-    
-    return TemplateInfo(**template_info)
-
-
-@router.get("/chains", response_model=List[TemplateChainInfo])
-def list_chains(current_user: User = Depends(get_current_user)):
-    """
-    获取可用的模板链列表
-    
-    - 需要用户认证
-    - 返回所有预设的模板链
-    """
-    chains = get_template_chains()
-    return chains
-
-
-@router.post("/preview", response_model=PromptPreviewResponse)
+@router.get("/prompt/preview", response_model=PromptPreviewResponse)
 def preview_prompt_text(
-    request: PromptPreviewRequest,
     current_user: User = Depends(get_current_user)
 ):
     """
-    预览组合后的提示词
-    
+    预览 Agent 提示词
+
     - 需要用户认证
-    - 根据模板ID列表预览最终使用的提示词
+    - 返回当前使用的 Agent 提示词
     """
-    prompt = preview_prompt(
-        template_ids=request.template_ids,
-        product_category=request.product_category
-    )
-    
+    prompt = get_agent_prompt()
+
     return PromptPreviewResponse(
         prompt=prompt,
-        template_ids=request.template_ids,
         char_count=len(prompt)
     )
-
-
-@router.get("/templates/categories")
-def get_template_categories(current_user: User = Depends(get_current_user)):
-    """
-    获取模板分类列表
-    
-    - 需要用户认证
-    - 返回所有可用的模板分类
-    """
-    from app.services.prompt_template import TemplateCategory
-    
-    return [
-        {
-            "category": cat.value,
-            "name": cat.name.replace("_", " ")
-        }
-        for cat in TemplateCategory
-    ]
 
 
 # ============ 配置模型 ============
@@ -557,13 +418,13 @@ class GenerationConfigResponse(BaseModel):
 def get_generation_config(current_user: User = Depends(get_current_user)):
     """
     获取图片生成配置
-    
+
     - 需要用户认证
     - 返回支持的宽高比和分辨率列表
     """
     from app.config import get_settings
     settings = get_settings()
-    
+
     return GenerationConfigResponse(
         supported_aspect_ratios=settings.SUPPORTED_ASPECT_RATIOS,
         supported_resolutions=settings.SUPPORTED_RESOLUTIONS,
@@ -607,27 +468,27 @@ def get_v2_task_history(
 ):
     """
     获取V2任务历史（直接从数据库查询，不经过任务队列）
-    
+
     - 支持分页
     - 支持状态过滤
     - 按创建时间降序排列
     - 实时反映任务状态
     """
     from sqlalchemy import desc
-    
+
     query = db.query(GenerationTask).filter(
         GenerationTask.user_id == current_user.id
     )
-    
+
     if status_filter:
         query = query.filter(GenerationTask.status == status_filter)
-    
+
     tasks = query.order_by(desc(GenerationTask.created_at)).offset(skip).limit(limit).all()
     total = query.count()
-    
+
     # 刷新数据库会话，确保获取最新状态
     db.expire_all()
-    
+
     return V2TaskHistoryResponse(
         tasks=[
             V2TaskHistoryItem(
@@ -657,7 +518,7 @@ def get_v2_task_detail(
 ):
     """
     获取V2任务详情（直接从数据库查询）
-    
+
     - 需要用户认证
     - 只能查看自己的任务
     """
@@ -668,7 +529,7 @@ def get_v2_task_detail(
 
     if not task:
         raise task_not_found_error(task_id=task_id)
-    
+
     return V2TaskHistoryItem(
         id=task.id,
         user_id=task.user_id,
@@ -710,7 +571,6 @@ async def process_task_background(
     task_id: int,
     original_path: str,
     result_path: str,
-    template_ids: List[str],
     custom_prompt: Optional[str],
     timeout_seconds: int,
     aspect_ratio: str,
@@ -724,12 +584,12 @@ async def process_task_background(
     user_id = None
     logger.info(f"[START] [Task {task_id}] ========== 开始处理后台任务 ==========")
     logger.info(f"[PATH] [Task {task_id}] 文件路径 - 输入: {original_path}, 输出: {result_path}")
-    logger.info(f"[PARAM] [Task {task_id}] 模板: {template_ids}, 比例: {aspect_ratio}, 尺寸: {image_size}")
+    logger.info(f"[PARAM] [Task {task_id}] 比例: {aspect_ratio}, 尺寸: {image_size}")
 
     async def update_progress(progress: int, estimated_remaining: int = None):
         """推送进度更新并更新数据库"""
         logger.info(f"[WS_PUSH] [Task {task_id}] 准备推送进度: {progress}%, user_id={user_id}")
-        
+
         # 更新数据库progress字段
         if db_session:
             try:
@@ -741,7 +601,7 @@ async def process_task_background(
             except Exception as db_error:
                 logger.error(f"[FAILED] [Task {task_id}] 数据库进度更新失败: {db_error}")
                 db_session.rollback()
-        
+
         # WebSocket推送
         if user_id:
             try:
@@ -791,7 +651,6 @@ async def process_task_background(
             process_image_with_gemini,
             image_path=original_path,
             output_path=result_path,
-            template_ids=template_ids,
             custom_prompt=custom_prompt,
             timeout_seconds=timeout_seconds,
             aspect_ratio=aspect_ratio,
@@ -842,13 +701,13 @@ async def process_task_background(
                 user_id = task.user_id  # 确保有 user_id 用于 WebSocket 推送
                 task.status = TaskStatus.FAILED
                 task.error_message = error_msg
-                
+
                 # 退还积分（任务失败时退还）
                 user = db_session_for_error.query(User).filter(User.id == user_id).first()
                 if user:
                     user.credits += 1
                     logger.info(f"任务失败，退还用户 {user_id} 积分，当前积分: {user.credits}")
-                
+
                 db_session_for_error.commit()
 
                 # WebSocket 推送任务失败
@@ -876,7 +735,6 @@ async def process_task_background(
 @router.post("/tasks/async", response_model=AsyncTaskResponse)
 async def create_async_task(
     file: UploadFile = File(...),
-    template_ids: Optional[str] = Form('["remove_bg", "standardize", "ecommerce", "color_correct"]'),
     custom_prompt: Optional[str] = Form(None),
     timeout_seconds: int = Form(180),
     aspect_ratio: str = Form("1:1"),
@@ -894,14 +752,6 @@ async def create_async_task(
     - 支持的图片格式: JPEG, PNG, WebP, TIFF
     - 返回任务ID后可轮询 /api/v2/tasks/{task_id}/status 获取状态
     """
-    import json
-
-    # 解析模板ID列表
-    try:
-        parsed_template_ids = json.loads(template_ids) if template_ids else ["remove_bg", "standardize", "ecommerce", "color_correct"]
-    except json.JSONDecodeError:
-        parsed_template_ids = ["remove_bg", "standardize", "ecommerce", "color_correct"]
-
     # 验证文件类型
     allowed_types = {'image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/tiff', 'image/tif', 'image/heic', 'image/heif'}
     content_type = file.content_type or ''
@@ -920,7 +770,7 @@ async def create_async_task(
     if current_user.credits < 1:
         logger.warning(f"用户 {current_user.id} 积分不足: {current_user.credits}")
         raise credits_insufficient_error()
-    
+
     # 扣除积分
     current_user.credits -= 1
     logger.info(f"扣除用户 {current_user.id} 积分，剩余: {current_user.credits}")
@@ -968,7 +818,6 @@ async def create_async_task(
                 task_id=task_id,
                 original_path=original_path,
                 result_path=result_path,
-                template_ids=parsed_template_ids,
                 custom_prompt=custom_prompt,
                 timeout_seconds=timeout_seconds,
                 aspect_ratio=aspect_ratio,
@@ -1046,6 +895,3 @@ def get_task_status(
         estimated_remaining_seconds=estimated_remaining,
         error_message=task.error_message
     )
-
-
-

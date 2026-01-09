@@ -34,13 +34,6 @@ const RATIOS = GENERATION_CONFIG.aspectRatios.map(r => ({
   label: r.label
 }));
 
-const DEFAULT_TEMPLATE_IDS = [
-  'remove_bg',
-  'standardize',
-  'ecommerce',
-  'color_correct'
-];
-
 const Index = () => {
   const [originalImage, setOriginalImage] = useState<string | null>(null);
   const [originalCacheKey, setOriginalCacheKey] = useState<string | null>(null);
@@ -65,7 +58,7 @@ const Index = () => {
   const { cacheTaskImage } = useTaskImageCache();
   const navigate = useNavigate();
 
-  // V2 图片生成 Hook（包含同步和异步方法）
+  // V2 图片生成 Hook（使用 Agent 提示词）
   const {
     processImage,
     processImageAsync,
@@ -73,18 +66,7 @@ const Index = () => {
     isProcessing,
     elapsedTime,
     estimatedRemainingTime,
-    templates,
-    chains,
-    isLoadingTemplates,
-    refreshTemplates,
-  } = useImageGenerationV2({
-    templateIds: DEFAULT_TEMPLATE_IDS,
-  });
-
-  // 加载模板列表
-  useEffect(() => {
-    refreshTemplates();
-  }, [refreshTemplates]);
+  } = useImageGenerationV2();
 
   // 同步预估剩余时间到倒计时
   useEffect(() => {
@@ -529,14 +511,6 @@ const Index = () => {
                             );
                           }}
                         />
-                      </div>
-                    )}
-
-                    {/* Templates Info */}
-                    {!isProcessing && !error && (
-                      <div className="text-center text-xs text-muted-foreground mt-4">
-                        <p>使用模板链: {DEFAULT_TEMPLATE_IDS.join(" -> ")}</p>
-                        <p>可用模板: {templates.length} 个 | 模板链: {chains.length} 个</p>
                       </div>
                     )}
                   </div>

@@ -2,14 +2,13 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import { generationV2API } from '@/integrations/api/client';
 import { useAuth } from './useAuth';
 import { useToast } from './use-toast';
-import { useWebSocketContext, useTaskSubscription, TaskProgressData } from '@/context/WebSocketContext';
+import { useWebSocketContext, TaskProgressData } from '@/context/WebSocketContext';
 
 interface ProcessResult {
   success: boolean;
   task_id: number | null;
   result_image: string | null;
   elapsed_time: number | null;
-  used_templates: string[] | null;
   error_message?: string;
 }
 
@@ -22,24 +21,7 @@ interface TaskStatus {
   error_message: string | null;
 }
 
-interface TemplateInfo {
-  template_id: string;
-  name: string;
-  category: string;
-  description: string;
-  priority: number;
-  enabled: boolean;
-}
-
-interface ChainInfo {
-  chain_id: string;
-  name: string;
-  template_count: number;
-  template_ids: string[];
-}
-
 interface UseImageGenerationV2Options {
-  templateIds?: string[];
   customPrompt?: string;
   timeoutSeconds?: number;
   aspectRatio?: string;
@@ -58,10 +40,6 @@ interface UseImageGenerationV2Return {
   isProcessing: boolean;
   elapsedTime: number | null;
   estimatedRemainingTime: number | null;
-  templates: TemplateInfo[];
-  chains: ChainInfo[];
-  isLoadingTemplates: boolean;
-  refreshTemplates: () => Promise<void>;
   error: string | null;
 }
 
@@ -72,37 +50,11 @@ export function useImageGenerationV2(
   const [elapsedTime, setElapsedTime] = useState<number | null>(null);
   const [estimatedRemainingTime, setEstimatedRemainingTime] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [templates, setTemplates] = useState<TemplateInfo[]>([]);
-  const [chains, setChains] = useState<ChainInfo[]>([]);
-  const [isLoadingTemplates, setIsLoadingTemplates] = useState(false);
   const [activePollingTasks, setActivePollingTasks] = useState<Set<number>>(new Set());
 
   const { user, refreshProfile } = useAuth();
   const { toast } = useToast();
-  const wsContext = useWebSocketContext(); // 在 hook 顶层调用
-
-  const defaultTemplateIds = options.templateIds || [
-    'remove_bg',
-    'standardize',
-    'ecommerce',
-    'color_correct'
-  ];
-
-  const refreshTemplates = useCallback(async () => {
-    setIsLoadingTemplates(true);
-    try {
-      const [templatesRes, chainsRes] = await Promise.all([
-        generationV2API.getTemplates(),
-        generationV2API.getChains(),
-      ]);
-      setTemplates(templatesRes.data || []);
-      setChains(chainsRes.data || []);
-    } catch (err) {
-      console.error('Failed to load templates:', err);
-    } finally {
-      setIsLoadingTemplates(false);
-    }
-  }, []);
+  const wsContext = useWebSocketContext();
 
   // 清理轮询任务
   useEffect(() => {
@@ -118,13 +70,13 @@ export function useImageGenerationV2(
     if (!user) {
       const errorMsg = '请先登录';
       setError(errorMsg);
-      return { success: false, task_id: null, result_image: null, elapsed_time: null, used_templates: null, error_message: errorMsg };
+      return { success: false, task_id: null, result_image: null, elapsed_time: null, error_message: errorMsg };
     }
 
     if (user.credits < 1) {
       const errorMsg = '积分不足';
       setError(errorMsg);
-      return { success: false, task_id: null, result_image: null, elapsed_time: null, used_templates: null, error_message: errorMsg };
+      return { success: false, task_id: null, result_image: null, elapsed_time: null, error_message: errorMsg };
     }
 
     setIsProcessing(true);
@@ -135,7 +87,6 @@ export function useImageGenerationV2(
 
     try {
       const result = await generationV2API.process(file, {
-        templateIds: defaultTemplateIds,
         customPrompt: options.customPrompt,
         timeoutSeconds: options.timeoutSeconds || 180,
         aspectRatio: aspectRatio || options.aspectRatio || '1:1',
@@ -160,7 +111,6 @@ export function useImageGenerationV2(
           task_id: data.task_id,
           result_image: data.result_image,
           elapsed_time: data.elapsed_time,
-          used_templates: data.used_templates,
         };
       } else {
         const errorMsg = data.error_message || '处理失败';
@@ -177,7 +127,6 @@ export function useImageGenerationV2(
           task_id: null,
           result_image: null,
           elapsed_time: elapsed,
-          used_templates: null,
           error_message: errorMsg,
         };
       }
@@ -199,13 +148,12 @@ export function useImageGenerationV2(
         task_id: null,
         result_image: null,
         elapsed_time: elapsed,
-        used_templates: null,
         error_message: errorMsg,
       };
     } finally {
       setIsProcessing(false);
     }
-  }, [user, refreshProfile, defaultTemplateIds, options.customPrompt, options.timeoutSeconds, toast]);
+  }, [user, refreshProfile, options.customPrompt, options.timeoutSeconds, toast]);
 
   // 异步提交任务
   const processImageAsync = useCallback(async (file: File, aspectRatio?: string, imageSize?: string): Promise<number> => {
@@ -219,7 +167,6 @@ export function useImageGenerationV2(
     }
 
     const result = await generationV2API.submitAsync(file, {
-      templateIds: defaultTemplateIds,
       customPrompt: options.customPrompt,
       timeoutSeconds: options.timeoutSeconds || 180,
       aspectRatio: aspectRatio || options.aspectRatio || '1:1',
@@ -233,7 +180,7 @@ export function useImageGenerationV2(
     }
 
     throw new Error('创建任务失败');
-  }, [user, refreshProfile, defaultTemplateIds, options.customPrompt, options.timeoutSeconds]);
+  }, [user, refreshProfile, options.customPrompt, options.timeoutSeconds]);
 
   // 轮询任务状态
   const pollTaskStatus = useCallback((taskId: number, onComplete: (result: ProcessResult) => void, onError?: (error: string) => void) => {
@@ -277,7 +224,6 @@ export function useImageGenerationV2(
               task_id: numericTaskId,
               result_image: status.result_image_url || null, // 从轮询结果获取图片URL
               elapsed_time: status.elapsed_time,
-              used_templates: null,
             });
 
             setActivePollingTasks(prev => {
@@ -432,10 +378,6 @@ export function useImageGenerationV2(
     isProcessing,
     elapsedTime,
     estimatedRemainingTime,
-    templates,
-    chains,
-    isLoadingTemplates,
-    refreshTemplates,
     error,
   };
 }
